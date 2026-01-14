@@ -1,0 +1,57 @@
+:root {
+  font-family: 'Kanit', 'Sarabun', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  /* ปล่อยให้ theme/app จัดการ ไม่บังคับทั้งระบบ */
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  color: #213547;
+  background-color: #ffffff;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+/* ✅ สำคัญ: อย่าใช้ display:flex / place-items:center ใน body (ทำ layout dashboard เพี้ยน) */
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* Force black focus outlines and labels for MUI inputs (override theme blue) */
+/* Scoped to dialogs and form controls to avoid global visual changes */
+.MuiDialog-root .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline,
+.MuiDialog-root .MuiOutlinedInput-root.Mui-focused.Mui-focused .MuiOutlinedInput-notchedOutline,
+.MuiDialog-root .MuiInputBase-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: #000 !important;
+}
+.MuiDialog-root .MuiInputLabel-root.Mui-focused {
+  color: #000 !important;
+}
+/* Also cover select and filled inputs in dialogs */
+.MuiDialog-root .MuiFilledInput-root.Mui-focused::before,
+.MuiDialog-root .MuiFilledInput-root.Mui-focused::after {
+  border-bottom-color: #000 !important;
+}
+
+/* Ensure DatePicker/TextField rendered inside dialogs also get black outlines */
+.MuiDialog-root .MuiInputBase-root:focus-within .MuiOutlinedInput-notchedOutline {
+  border-color: #000 !important;
+}
+
+/* Fallback: inputs when focused anywhere (avoid very global conflict) */
+.MuiDialog-root input:focus,
+.MuiDialog-root textarea:focus {
+  outline-color: #000 !important;
+}
