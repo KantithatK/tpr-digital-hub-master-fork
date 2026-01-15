@@ -54,7 +54,7 @@ function Home() {
               mt: 1,
             }}
           >
-            ทดสอบ fork
+            TPR SYSTEM
           </Typography>
 
             <Stack
