@@ -24,7 +24,6 @@ import {
   ListItemIcon,
   ListItemText,
   useMediaQuery,
-  // colors,
 } from '@mui/material';
 
 import { createTheme, ThemeProvider, useTheme } from '@mui/material/styles';
@@ -36,7 +35,6 @@ import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded';
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
 import TrackChangesRoundedIcon from '@mui/icons-material/TrackChangesRounded';
-import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
 import SupervisorAccountRoundedIcon from '@mui/icons-material/SupervisorAccountRounded';
 import EventNoteRoundedIcon from '@mui/icons-material/EventNoteRounded';
 import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
@@ -46,19 +44,6 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import LocalOfferRoundedIcon from '@mui/icons-material/LocalOfferRounded';
 
 // Default avatar asset
-import defaultAvatar from '../assets/avatar.png';
-
-// Load bundled avatar images (1.webp..10.webp) via Vite import.meta.glob
-const _avatarModules = import.meta.glob('../assets/avatars/*.webp', { eager: true, as: 'url' });
-const AVATAR_URLS = Object.keys(_avatarModules)
-  .map((p) => ({ path: p, url: _avatarModules[p] }))
-  .map(({ path, url }) => {
-    const m = path.match(/(\d+)\.webp$/);
-    const n = m ? parseInt(m[1], 10) : 0;
-    return { n, url };
-  })
-  .sort((a, b) => a.n - b.n)
-  .map((o) => o.url);
 
 // Supabase / Providers
 import { supabase } from '../lib/supabaseClient';
@@ -100,7 +85,6 @@ const appTheme = createTheme({
     success: { main: '#08d84c' },
     warning: { main: '#fdca01' },
     error: { main: '#ff4059' },
-
     text: {
       primary: '#0F172A',
       secondary: '#64748B',
@@ -137,22 +121,23 @@ function NoAccess() {
   );
 }
 
+/* ================= PATH NORMALIZER ================= */
+function normalizePath(p) {
+  const s = String(p || '');
+  if (s.startsWith('/company/')) return `/${s.replace('/company/', '')}`;
+  if (s === '/company') return '/attendance';
+  return s;
+}
+
 /* ================= PAGE RENDERER ================= */
 function PageRenderer({
   pathname,
-  canAccessTaskTracking,
-  canAccessTimeLogging,
-  canAccessPlanning,
-  canAccessProjects,
-  canAccessManager,
-  canAccessOTSummary,
-  canAccessSales,
   session,
 }) {
-  switch (pathname) {
-    case '/company':
-      return <TimeClock session={session} />;
+  const normalized = normalizePath(pathname);
 
+  switch (normalized) {
+    case '/company':
     case '/attendance':
     case '/company/attendance':
       return <TimeClock session={session} />;
@@ -202,13 +187,7 @@ function PageRenderer({
 
 PageRenderer.propTypes = {
   pathname: PropTypes.string.isRequired,
-  canAccessTaskTracking: PropTypes.bool,
-  canAccessTimeLogging: PropTypes.bool,
-  canAccessPlanning: PropTypes.bool,
-  canAccessProjects: PropTypes.bool,
-  canAccessManager: PropTypes.bool,
-  canAccessSales: PropTypes.bool,
-  canAccessOTSummary: PropTypes.bool,
+  allowedPathSet: PropTypes.instanceOf(Set),
   session: PropTypes.object,
 };
 
@@ -393,8 +372,6 @@ function AccountMenuButton() {
   const [anchorEl, setAnchorEl] = React.useState(null);
   const open = Boolean(anchorEl);
   const [user, setUser] = React.useState(null);
-  const [storedAvatarUrl, setStoredAvatarUrl] = React.useState(null);
-
 
   React.useEffect(() => {
     let mounted = true;
@@ -421,47 +398,7 @@ function AccountMenuButton() {
     };
   }, []);
 
-  // Manage cached/random fallback avatar when user has no remote avatar
-  React.useEffect(() => {
-    let mounted = true;
-    const hasAvatar = user?.user_metadata?.avatar_url || user?.avatar_url;
-    if (hasAvatar) {
-      if (mounted) setStoredAvatarUrl(null);
-      return () => {
-        mounted = false;
-      };
-    }
 
-    try {
-      const key = `tpr:avatar:${user?.id || user?.email || 'guest'}`;
-      const saved = typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
-      if (saved && AVATAR_URLS.includes(saved)) {
-        if (mounted) setStoredAvatarUrl(saved);
-        if (saved) console.log('[tpr] using cached avatar:', saved);
-        return () => {
-          mounted = false;
-        };
-      }
-
-      if (AVATAR_URLS.length > 0) {
-        const idx = Math.floor(Math.random() * AVATAR_URLS.length);
-        const url = AVATAR_URLS[idx];
-        try {
-          if (typeof window !== 'undefined') window.localStorage.setItem(key, url);
-        } catch{
-          // ignore storage errors
-        }
-        if (mounted) setStoredAvatarUrl(url);
-        console.log('[tpr] selected random avatar:', url);
-      }
-    } catch {
-      // ignore
-    }
-
-    return () => {
-      mounted = false;
-    };
-  }, [user]);
 
   const handleOpen = (event) => setAnchorEl(event.currentTarget);
   const handleClose = () => setAnchorEl(null);
@@ -482,6 +419,14 @@ function AccountMenuButton() {
     }
   };
 
+  const avatarSrc = user?.user_metadata?.avatar_url ?? user?.avatar_url;
+
+  const borderColor = React.useMemo(() => {
+    const idx = Math.floor(Math.random() * ACTIVE_COLORS.length);
+    return ACTIVE_COLORS[idx];
+  }, []);
+
+
   return (
     <>
       <IconButton onClick={handleOpen} size="small" sx={{ ml: 1 }}>
@@ -490,13 +435,11 @@ function AccountMenuButton() {
             width: 40,
             height: 40,
             boxSizing: 'border-box',
-            bgcolor: '#',
+            border: `3px solid ${borderColor}`,
           }}
-          src={user?.user_metadata?.avatar_url ?? user?.avatar_url ?? storedAvatarUrl ?? defaultAvatar}
+          src={avatarSrc}
         >
-          {!(user?.user_metadata?.avatar_url || user?.avatar_url || storedAvatarUrl)
-            ? user?.user_metadata?.full_name?.[0] ?? user?.email?.[0] ?? ''
-            : ''}
+          {!avatarSrc ? user?.user_metadata?.full_name?.[0] ?? user?.email?.[0] ?? '' : ''}
         </Avatar>
       </IconButton>
 
@@ -592,31 +535,23 @@ function DashboardLayoutAccountSidebar(props) {
     }
   }, [authChecked, session, navigate]);
 
-  // Role-based access
-  const [canAccessSettings, setCanAccessSettings] = React.useState(false);
-  const [canAccessTaskTracking, setCanAccessTaskTracking] = React.useState(false);
-  const [canAccessTimeLogging, setCanAccessTimeLogging] = React.useState(false);
-  const [canAccessPlanning, setCanAccessPlanning] = React.useState(false);
-  const [canAccessProjects, setCanAccessProjects] = React.useState(false);
-  const [canAccessOTSummary, setCanAccessOTSummary] = React.useState(false);
-  const [canAccessManager, setCanAccessManager] = React.useState(false);
-  const [canAccessSales, setCanAccessSales] = React.useState(false);
+  // ✅ menu & access by role
+  // category: 'ALL' (CEO/Admin) | 'HR' | 'EMP' | 'NONE'
+  const [roleCategory, setRoleCategory] = React.useState('NONE');
+  const [rolesResolved, setRolesResolved] = React.useState(false);
 
   React.useEffect(() => {
     let mounted = true;
 
     (async () => {
       try {
+        setRolesResolved(false);
+
         const email = session?.user?.email ? String(session.user.email).trim().toLowerCase() : '';
         if (!email) {
           if (mounted) {
-            setCanAccessSettings(false);
-            setCanAccessTaskTracking(false);
-            setCanAccessTimeLogging(false);
-            setCanAccessPlanning(false);
-            setCanAccessProjects(false);
-            setCanAccessManager(false);
-            setCanAccessOTSummary(false);
+            setRoleCategory('NONE');
+            setRolesResolved(true);
           }
           return;
         }
@@ -628,27 +563,17 @@ function DashboardLayoutAccountSidebar(props) {
 
         if (bindErr) {
           if (mounted) {
-            setCanAccessSettings(false);
-            setCanAccessTaskTracking(false);
-            setCanAccessTimeLogging(false);
-            setCanAccessPlanning(false);
-            setCanAccessProjects(false);
-            setCanAccessManager(false);
-            setCanAccessOTSummary(false);
+            setRoleCategory('NONE');
+            setRolesResolved(true);
           }
           return;
         }
 
-        const roleIds = (bindings || []).map((b) => b.role_id);
+        const roleIds = (bindings || []).map((b) => b.role_id).filter(Boolean);
         if (roleIds.length === 0) {
           if (mounted) {
-            setCanAccessSettings(false);
-            setCanAccessTaskTracking(false);
-            setCanAccessTimeLogging(false);
-            setCanAccessPlanning(false);
-            setCanAccessProjects(false);
-            setCanAccessManager(false);
-            setCanAccessOTSummary(false);
+            setRoleCategory('NONE');
+            setRolesResolved(true);
           }
           return;
         }
@@ -660,83 +585,69 @@ function DashboardLayoutAccountSidebar(props) {
 
         if (rolesErr) {
           if (mounted) {
-            setCanAccessSettings(false);
-            setCanAccessTaskTracking(false);
-            setCanAccessTimeLogging(false);
-            setCanAccessPlanning(false);
-            setCanAccessProjects(false);
-            setCanAccessManager(false);
-            setCanAccessOTSummary(false);
+            setRoleCategory('NONE');
+            setRolesResolved(true);
           }
           return;
         }
 
-        const allowedTh = ['ประธานเจ้าหน้าที่บริหาร', 'ผู้จัดการโครงการ', 'ฝ่ายทรัพยากรบุคคล'];
-        const allowedEn = ['Chief Executive Officer', 'Project Manager', 'Human Resources'];
-        const hasAllowed = (roles || []).some(
-          (r) => allowedTh.includes(String(r.name_th || '').trim()) || allowedEn.includes(String(r.name_en || '').trim()),
-        );
+        const namesTh = (roles || []).map((r) => String(r?.name_th || '').trim()).filter(Boolean);
+        const namesEn = (roles || []).map((r) => String(r?.name_en || '').trim()).filter(Boolean);
 
-        const taskLeadTh = ['หัวหน้าทีม'];
-        const taskLeadEn = ['Team Lead'];
-        const hasTaskLead = (roles || []).some(
-          (r) => taskLeadTh.includes(String(r.name_th || '').trim()) || taskLeadEn.includes(String(r.name_en || '').trim()),
-        );
+        const isCEO =
+          namesTh.includes('ประธานเจ้าหน้าที่บริหาร') ||
+          namesEn.includes('Chief Executive Officer');
 
-        const planningAllowedTh = ['ผู้จัดการโครงการ', 'หัวหน้าทีม'];
-        const planningAllowedEn = ['Project Manager', 'Team Lead'];
-        const hasPlanningAllowed = (roles || []).some(
-          (r) =>
-            planningAllowedTh.includes(String(r.name_th || '').trim()) ||
-            planningAllowedEn.includes(String(r.name_en || '').trim()),
-        );
+        const isAdmin =
+          namesTh.includes('ผู้ดูแลระบบ') ||
+          namesEn.includes('Administrator');
 
-        const hasProjectsAllowed = hasPlanningAllowed;
+        const isHR =
+          namesTh.includes('ฝ่ายทรัพยากรบุคคล') ||
+          namesEn.includes('Human Resources');
 
-        const timeAllowedTh = ['ผู้จัดการโครงการ', 'หัวหน้าทีม', 'พนักงานทั่วไป'];
-        const timeAllowedEn = ['Project Manager', 'Team Lead', 'Employee'];
-        const hasTimeAllowed = (roles || []).some(
-          (r) => timeAllowedTh.includes(String(r.name_th || '').trim()) || timeAllowedEn.includes(String(r.name_en || '').trim()),
-        );
+        const isEmployee =
+          namesTh.includes('พนักงานทั่วไป') ||
+          namesEn.includes('Employee');
 
-        const managerTh = ['หัวหน้าทีม', 'ผู้จัดการ', 'ผู้จัดการโครงการ'];
-        const managerEn = ['Team Lead', 'Manager', 'Project Manager'];
-        const hasManagerRole = (roles || []).some(
-          (r) => managerTh.includes(String(r.name_th || '').trim()) || managerEn.includes(String(r.name_en || '').trim()),
-        );
+        // ✅ Priority: CEO/Admin > HR > Employee > None
+        let category = 'NONE';
+        if (isCEO || isAdmin) category = 'ALL';
+        else if (isHR) category = 'HR';
+        else if (isEmployee) category = 'EMP';
+        else category = 'NONE';
 
-        const otTh = ['ฝ่ายทรัพยากรบุคคล', 'หัวหน้าทีม', 'ผู้จัดการโครงการ', 'ผู้จัดการ'];
-        const otEn = ['Human Resources', 'Team Lead', 'Project Manager', 'Manager'];
-        const hasOTAllowed = (roles || []).some(
-          (r) => otTh.includes(String(r.name_th || '').trim()) || otEn.includes(String(r.name_en || '').trim()),
-        );
-
-        const salesTh = ['ผู้จัดการฝ่ายขาย', 'ผู้จัดการฝ่ายพัฒนาธุรกิจ'];
-        const salesEn = ['Sales Manager', 'Business Development Manager', 'Business Development'];
-        const hasSalesAllowed = (roles || []).some(
-          (r) => salesTh.includes(String(r.name_th || '').trim()) || salesEn.includes(String(r.name_en || '').trim()),
-        );
+        // ✅ Allowed paths by category (ตามที่ขอ)
+        // - CEO/Admin: all menus (allowedPathSet = null => bypass checks)
+        // - HR: Home + Leave/OT + Settings
+        // - Employee: Home + Time Logging
+        let allowed = null;
+        if (category === 'HR') {
+          allowed = new Set(['/attendance', '/leave-ot-summary', '/settings']);
+        } else if (category === 'EMP') {
+          allowed = new Set(['/attendance', '/time-logging']);
+        } else if (category === 'NONE') {
+          allowed = new Set(['/attendance']);
+        } else {
+          allowed = null; // ALL
+        }
 
         if (mounted) {
-          setCanAccessSettings(!!hasAllowed);
-          setCanAccessTaskTracking(!!hasTaskLead);
-          setCanAccessTimeLogging(!!hasTimeAllowed);
-          setCanAccessPlanning(!!hasPlanningAllowed);
-          setCanAccessProjects(!!hasProjectsAllowed);
-          setCanAccessManager(!!hasManagerRole);
-          setCanAccessOTSummary(!!hasOTAllowed);
-          setCanAccessSales(!!hasSalesAllowed);
+          setRoleCategory(category);
+          setRolesResolved(true);
+
+          // ✅ If user currently on a page that is not allowed, push back to /attendance
+          const current = normalizePath(pathname);
+          if (category !== 'ALL' && allowed && !allowed.has(current)) {
+            setPathname('/attendance');
+          }
         }
       } catch (err) {
         console.error('Role access error', err);
         if (mounted) {
-          setCanAccessSettings(false);
-          setCanAccessTaskTracking(false);
-          setCanAccessTimeLogging(false);
-          setCanAccessPlanning(false);
-          setCanAccessProjects(false);
-          setCanAccessManager(false);
-          setCanAccessOTSummary(false);
+          setRoleCategory('NONE');
+          setRolesResolved(true);
+          if (normalizePath(pathname) !== '/attendance') setPathname('/attendance');
         }
       }
     })();
@@ -744,9 +655,10 @@ function DashboardLayoutAccountSidebar(props) {
     return () => {
       mounted = false;
     };
-  }, [session]);
+    // include pathname so we can bounce user if they are on forbidden page
+  }, [session, pathname]);
 
-  const topNavItems = React.useMemo(
+  const baseTopNavItems = React.useMemo(
     () => [
       { title: 'หน้าแรก', path: '/attendance', disabled: false, icon: <HomeRoundedIcon /> },
       { title: 'โครงการ', path: '/projects', disabled: false, icon: <WorkspacesRoundedIcon /> },
@@ -759,8 +671,31 @@ function DashboardLayoutAccountSidebar(props) {
       { title: 'สรุปการเงิน', path: '/finance-summary', disabled: false, icon: <PaymentsRoundedIcon /> },
       { title: 'ตั้งค่า', path: '/settings', disabled: false, icon: <SettingsRoundedIcon /> },
     ],
-    [canAccessProjects, canAccessPlanning, canAccessTaskTracking, canAccessTimeLogging, canAccessManager, canAccessOTSummary, canAccessSettings, canAccessSales],
+    [],
   );
+
+  // ✅ filter menu by roleCategory (exactly as requested)
+  const topNavItems = React.useMemo(() => {
+    if (!rolesResolved) {
+      // ระหว่างโหลดสิทธิ์ ให้เห็นแค่หน้าแรกก่อน (กันกระพริบเมนู)
+      return baseTopNavItems.filter((i) => i.path === '/attendance');
+    }
+
+    if (roleCategory === 'ALL') return baseTopNavItems;
+
+    if (roleCategory === 'HR') {
+      const allowed = new Set(['/attendance', '/leave-ot-summary', '/settings']);
+      return baseTopNavItems.filter((i) => allowed.has(i.path));
+    }
+
+    if (roleCategory === 'EMP') {
+      const allowed = new Set(['/attendance', '/time-logging']);
+      return baseTopNavItems.filter((i) => allowed.has(i.path));
+    }
+
+    // NONE
+    return baseTopNavItems.filter((i) => i.path === '/attendance');
+  }, [baseTopNavItems, roleCategory, rolesResolved]);
 
   const activeColorMap = useStableRandomColorMap(topNavItems.map((i) => i.path));
 
@@ -771,8 +706,19 @@ function DashboardLayoutAccountSidebar(props) {
 
   // ✅ Responsive: Mobile hamburger
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md')); // md ลงไปถือว่า mobile/tablet
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+
+  // ✅ For PageRenderer access check:
+  // - ALL => allowedPathSetForRenderer = null (bypass)
+  // - others => use allowedPathSet
+  const allowedPathSetForRenderer = React.useMemo(() => {
+    if (!rolesResolved) return new Set(['/attendance']);
+    if (roleCategory === 'ALL') return null;
+    if (roleCategory === 'HR') return new Set(['/attendance', '/leave-ot-summary', '/settings']);
+    if (roleCategory === 'EMP') return new Set(['/attendance', '/time-logging']);
+    return new Set(['/attendance']);
+  }, [roleCategory, rolesResolved]);
 
   return (
     <ThemeProvider theme={appTheme}>
@@ -823,11 +769,10 @@ function DashboardLayoutAccountSidebar(props) {
                           height: 44,
                           borderRadius: 999,
                           bgcolor: 'rgba(15, 23, 42, 0.04)',
-                          '&:hover': { bgcolor: 'rgba(15, 23, 42, 0.07)'},
+                          '&:hover': { bgcolor: 'rgba(15, 23, 42, 0.07)' },
                         }}
-                        
                       >
-                        <MenuRoundedIcon sx={{ color: "#000" }} />
+                        <MenuRoundedIcon sx={{ color: '#000' }} />
                       </IconButton>
                     )}
                   </Box>
@@ -852,13 +797,7 @@ function DashboardLayoutAccountSidebar(props) {
               <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
                 <PageRenderer
                   pathname={pathname}
-                  canAccessTaskTracking={canAccessTaskTracking}
-                  canAccessTimeLogging={canAccessTimeLogging}
-                  canAccessPlanning={canAccessPlanning}
-                  canAccessProjects={canAccessProjects}
-                  canAccessManager={canAccessManager}
-                  canAccessOTSummary={canAccessOTSummary}
-                  canAccessSales={canAccessSales}
+                  allowedPathSet={allowedPathSetForRenderer}
                   session={session}
                 />
               </Container>

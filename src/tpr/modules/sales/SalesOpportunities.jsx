@@ -880,7 +880,7 @@ export default function SalesOpportunities() {
                     sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 1.5 }}
                   >
                     <Box>
-                      <Typography sx={{ fontWeight: 500 }}>{x.project_name}</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>{x.project_name}</Typography>
                       <Typography variant="body2" color="text.secondary">
                         {x.customer_display_name} •{' '}
                         {days == null ? (
@@ -927,7 +927,7 @@ export default function SalesOpportunities() {
                   sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 1.5 }}
                 >
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 500 }}>{a.customer_display_name}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{a.customer_display_name}</Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>{a.activity_description}</Typography>
                   </Box>
 
