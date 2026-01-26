@@ -575,7 +575,7 @@ export default function PartnersTab({ notify }) {
         {/* ===== Flat list container (ไม่ใช้ตาราง) ===== */}
         <Paper variant="outlined" sx={{ border: 'none' }}>
           {loading ? (
-            <Box sx={{ p: 1 }}>
+            <Box >
               <PartnerListSkeleton />
             </Box>
           ) : filteredRows.length === 0 ? (

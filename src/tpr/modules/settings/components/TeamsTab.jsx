@@ -521,7 +521,7 @@ export default function TeamsTab({ notify, employees, positionMap }) {
       )}
 
       {/* ===== Body ===== */}
-      <Box sx={{ px: 2, pb: 2 }}>
+      <Box>
         {teamsError ? (
           <Alert severity="error" sx={{ mb: 2 }}>
             {teamsError}
@@ -675,7 +675,8 @@ export default function TeamsTab({ notify, employees, positionMap }) {
               size="small"
               value={editingTeam.team_lead_id ? getLeadName(editingTeam.team_lead_id) : ''}
               placeholder="-- ไม่ระบุ --"
-              sx={inputSx}
+              sx={{ ...inputSx, display: 'none' }}
+              
               InputProps={{
                 readOnly: true,
                 endAdornment: (

@@ -298,6 +298,26 @@ export default function EmployeePage() {
       const raw = err?.message || (typeof err === 'string' ? err : JSON.stringify(err));
       const text = String(raw || '').toLowerCase();
 
+      // PostgREST: .single() expects exactly 1 row but got 0 or >1
+      if (text.includes('cannot coerce the result to a single json object')) {
+        setSnackbar({
+          open: true,
+          message: 'ระบบไม่พบข้อมูลที่ต้องการ หรือพบข้อมูลมากกว่า 1 รายการ (single). โปรดลองใหม่อีกครั้ง',
+          severity: 'error',
+        });
+        return;
+      }
+
+      // Exclusion constraint: no overlapping effective date ranges
+      if (text.includes('no_overlap_emp_cal')) {
+        setSnackbar({
+          open: true,
+          message: 'ช่วงวันที่ปฏิทินบริษัทซ้อนทับกับข้อมูลเดิม (calendar overlap). กรุณาปรับวันที่เริ่มมีผล หรือแก้ไขรายการเดิมก่อน',
+          severity: 'error',
+        });
+        return;
+      }
+
       // Postgres unique constraint / duplicate key
       if (text.includes('duplicate key') || text.includes('unique constraint')) {
         // try detect which constraint/column caused it
@@ -485,17 +505,30 @@ export default function EmployeePage() {
         }
       }
 
+      const pickSingleRow = (rows) => (Array.isArray(rows) ? rows[0] : rows);
+
       let empId = null;
       if (editMode && originalId) {
-        // update existing
-        const { data: empData, error: empError } = await supabase.from('employees').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', originalId).select('*').single();
+        // update existing (avoid .single() coercion; PostgREST returns array)
+        const { data: empRows, error: empError } = await supabase
+          .from('employees')
+          .update({ ...payload, updated_at: new Date().toISOString() })
+          .eq('id', originalId)
+          .select('*');
         if (empError) throw empError;
-        empId = empData.id;
+        const empRow = pickSingleRow(empRows);
+        if (!empRow?.id) throw new Error('ไม่พบข้อมูลพนักงานหลังจากบันทึก (update)');
+        empId = empRow.id;
       } else {
-        // insert employee
-        const { data: empData, error: empError } = await supabase.from('employees').insert([{ ...payload, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }]).select('*').single();
+        // insert employee (avoid .single() coercion; PostgREST returns array)
+        const { data: empRows, error: empError } = await supabase
+          .from('employees')
+          .insert([{ ...payload, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }])
+          .select('*');
         if (empError) throw empError;
-        empId = empData.id;
+        const empRow = pickSingleRow(empRows);
+        if (!empRow?.id) throw new Error('ไม่พบข้อมูลพนักงานหลังจากบันทึก (insert)');
+        empId = empRow.id;
       }
 
       // insert assigned user groups
@@ -588,25 +621,75 @@ export default function EmployeePage() {
             d.setDate(d.getDate() - 1);
             return d.toISOString().slice(0, 10);
           };
-          if (editMode) {
-            // close any active assignment by setting effective_to to day before new effective_from
-            await supabase
-              .from('employee_calendar_assignments')
-              .update({ effective_to: dayBefore(effFrom), updated_at: new Date().toISOString() })
-              .eq('user_id', empId)
-              .is('effective_to', null);
+
+          // 1) If there is an overlapping assignment at effFrom, adjust/update it to avoid exclusion conflict.
+          const { data: overlapRows, error: overlapErr } = await supabase
+            .from('employee_calendar_assignments')
+            .select('id,calendar_id,effective_from,effective_to')
+            .eq('user_id', empId)
+            .lte('effective_from', effFrom)
+            .or(`effective_to.is.null,effective_to.gte.${effFrom}`)
+            .order('effective_from', { ascending: false })
+            .limit(1);
+          if (overlapErr) throw overlapErr;
+
+          const overlap = overlapRows && overlapRows.length ? overlapRows[0] : null;
+          let handledByUpdate = false;
+          if (overlap?.id) {
+            const overlapFrom = String(overlap.effective_from || '');
+            if (overlapFrom === String(effFrom)) {
+              // same start date: update the calendar on that row instead of inserting a new overlapping row
+              if (String(overlap.calendar_id || '') !== String(calId)) {
+                const { error: updErr } = await supabase
+                  .from('employee_calendar_assignments')
+                  .update({ calendar_id: calId, updated_at: new Date().toISOString() })
+                  .eq('id', overlap.id);
+                if (updErr) throw updErr;
+              }
+              handledByUpdate = true;
+            } else {
+              // overlaps but starts before effFrom: close it to the day before effFrom
+              const newTo = dayBefore(effFrom);
+              // only close if newTo >= overlapFrom (safety)
+              if (new Date(newTo) >= new Date(overlapFrom)) {
+                const { error: closeErr } = await supabase
+                  .from('employee_calendar_assignments')
+                  .update({ effective_to: newTo, updated_at: new Date().toISOString() })
+                  .eq('id', overlap.id);
+                if (closeErr) throw closeErr;
+              }
+            }
           }
-          const { error: calErr } = await supabase.from('employee_calendar_assignments').insert([{
-            user_id: empId,
-            calendar_id: calId,
-            effective_from: effFrom,
-            created_by: form.created_by || null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }]);
-          if (calErr) {
-            console.error('Failed to insert employee_calendar_assignments', calErr);
-            throw calErr;
+
+          // 2) If there is a future assignment, bound this new one to avoid overlapping the future row.
+          const { data: nextRows, error: nextErr } = await supabase
+            .from('employee_calendar_assignments')
+            .select('id,effective_from')
+            .eq('user_id', empId)
+            .gt('effective_from', effFrom)
+            .order('effective_from', { ascending: true })
+            .limit(1);
+          if (nextErr) throw nextErr;
+          const next = nextRows && nextRows.length ? nextRows[0] : null;
+          const effectiveTo = next?.effective_from ? dayBefore(next.effective_from) : null;
+
+          // 3) Insert new assignment if we didn't update an existing row at the same start date.
+          if (!handledByUpdate) {
+            const insertPayload = {
+              user_id: empId,
+              calendar_id: calId,
+              effective_from: effFrom,
+              created_by: form.created_by || null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+            if (effectiveTo) insertPayload.effective_to = effectiveTo;
+
+            const { error: calErr } = await supabase.from('employee_calendar_assignments').insert([insertPayload]);
+            if (calErr) {
+              console.error('Failed to insert employee_calendar_assignments', calErr);
+              throw calErr;
+            }
           }
         } else if (editMode) {
           // if editing and user removed selection, clear any active assignment
@@ -1689,7 +1772,11 @@ export default function EmployeePage() {
         if (calAssign && calAssign.length) {
           const active = calAssign[0];
           if (active && active.calendar_id) {
-            const { data: cc, error: ccErr } = await supabase.from('company_calendars').select('id,code,name').eq('id', active.calendar_id).single();
+            const { data: cc, error: ccErr } = await supabase
+              .from('company_calendars')
+              .select('id,code,name')
+              .eq('id', active.calendar_id)
+              .maybeSingle();
             if (!ccErr && cc) {
               setForm((prev) => ({ ...prev, company_calendar_id: cc.id || '', company_calendar_name: cc.name || cc.code || '' }));
             } else {
