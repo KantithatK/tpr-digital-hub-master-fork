@@ -186,6 +186,15 @@ export default function EmployeePage() {
 
 
   // fetch data from Supabase and populate table (with pagination + optional ilike search)
+  const formatEmployeeName = React.useCallback((emp) => {
+    if (!emp) return '';
+    const th = `${emp.first_name_th || ''} ${emp.last_name_th || ''}`.trim();
+    if (th) return th;
+    const en = `${emp.first_name_en || ''} ${emp.last_name_en || ''}`.trim();
+    if (en) return en;
+    return emp.employee_code || '';
+  }, []);
+
   const fetchData = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -204,9 +213,35 @@ export default function EmployeePage() {
       const { data, error, count } = await query;
       if (error) throw error;
 
-      setRows(data || []);
+      // Resolve supervisor names from supervisor_id (since DB stores supervisor_id, not always supervisor_name)
+      const baseRows = data || [];
+      const supervisorIds = Array.from(new Set(baseRows.map((r) => r?.supervisor_id).filter(Boolean)));
+      let supervisorMap = {};
+      if (supervisorIds.length > 0) {
+        const { data: supRows, error: supErr } = await supabase
+          .from('employees')
+          .select('id,employee_code,first_name_th,last_name_th,first_name_en,last_name_en')
+          .in('id', supervisorIds);
+        if (!supErr && Array.isArray(supRows)) {
+          supervisorMap = supRows.reduce((acc, s) => {
+            acc[s.id] = s;
+            return acc;
+          }, {});
+        }
+      }
+
+      const withSupervisorName = baseRows.map((r) => {
+        const sup = r?.supervisor_id ? supervisorMap[r.supervisor_id] : null;
+        const resolvedName = sup ? formatEmployeeName(sup) : '';
+        return {
+          ...r,
+          supervisor_name: r?.supervisor_name || r?.supervisor || resolvedName || '',
+        };
+      });
+
+      setRows(withSupervisorName);
       // Supabase returns count when count:'exact' is used
-      setTotal(typeof count === 'number' ? count : (data ? data.length : 0));
+      setTotal(typeof count === 'number' ? count : (baseRows ? baseRows.length : 0));
     } catch (err) {
       console.error('fetchData error', err);
       setSnackbar({ open: true, message: err.message || 'ไม่สามารถโหลดข้อมูลพนักงาน', severity: 'error' });
@@ -215,7 +250,7 @@ export default function EmployeePage() {
     } finally {
       setLoading(false);
     }
-  }, [appliedSearch, page, rowsPerPage]);
+  }, [appliedSearch, page, rowsPerPage, formatEmployeeName]);
 
   // load data on mount / when paging or search changes
   React.useEffect(() => {
@@ -1653,6 +1688,37 @@ export default function EmployeePage() {
     setPaymentScheduleSelection(row.payment_schedule_template || row.payment_schedule_template_name || '');
     setActiveTab(0);
     setOpenAdd(true);
+
+    // Resolve supervisor_name from supervisor_id if missing
+    (async () => {
+      try {
+        const supId = row.supervisor_id;
+        if (!supId) return;
+        const already = row.supervisor || row.supervisor_name;
+        if (already && String(already).trim()) return;
+
+        // First try from employeeList (if already loaded)
+        const local = employeeList.find((e) => String(e.id) === String(supId));
+        if (local) {
+          const name = formatEmployeeName(local);
+          if (name) setForm((prev) => ({ ...prev, supervisor_name: name }));
+          return;
+        }
+
+        // Fallback: fetch supervisor row by id
+        const { data: supRow, error: supErr } = await supabase
+          .from('employees')
+          .select('id,employee_code,first_name_th,last_name_th,first_name_en,last_name_en')
+          .eq('id', supId)
+          .maybeSingle();
+        if (supErr) return;
+        const name = formatEmployeeName(supRow);
+        if (name) setForm((prev) => ({ ...prev, supervisor_name: name }));
+      } catch {
+        // ignore
+      }
+    })();
+
     // ensure districts/subdistricts are loaded for the edited row so selects show correctly
     try {
       if (row.marriage_province_id) {
