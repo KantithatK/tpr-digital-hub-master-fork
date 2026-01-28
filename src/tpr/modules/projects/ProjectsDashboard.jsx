@@ -80,6 +80,16 @@ function clamp(n, a, b) {
   return Math.max(a, Math.min(b, x));
 }
 
+function truncateText(str, max = 40) {
+  try {
+    const s = String(str || '');
+    if (s.length <= max) return s;
+    return `${s.slice(0, max - 1)}…`;
+  } catch {
+    return '';
+  }
+}
+
 // ===== Workstream UI helpers (UI only, logic เดี๋ยวไปทำใน Projects.js) =====
 function StatusPill({ status }) {
   const sRaw = String(status || '');
@@ -1067,8 +1077,8 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
             โครงการ
           </Button>
           <Box sx={{ opacity: 0.55, color: 'text.secondary' }}>›</Box>
-          <Typography variant="body2" color="text.secondary">
-            {projectName || '-'}
+          <Typography variant="body2" color="text.secondary" title={projectName || ''} sx={{ maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {truncateText(projectName, 40) || '-'}
           </Typography>
           <Box sx={{ opacity: 0.55, color: 'text.secondary' }}>·</Box>
           <Typography variant="body2" color="text.secondary">

@@ -930,7 +930,6 @@ export default function ProjectsList(props) {
                             py: 1.2,
                             ...(idx === 6 ? { textAlign: 'right' } : null),
                             ...(idx === 4 ? { textAlign: 'center', width: 180 } : null),
-                            ...(idx === 0 ? { width: 420 } : null), // ✅ แก้: ล็อคความกว้างคอลัมน์ชื่อโครงการ
                           }}
                         >
                           {h}
