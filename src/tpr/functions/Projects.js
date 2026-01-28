@@ -1196,7 +1196,7 @@ const Projects = {
     try {
       const collator = new Intl.Collator('th', { sensitivity: 'base', numeric: true });
       mapped.sort((a, b) => collator.compare(a.nickname || '', b.nickname || ''));
-    } catch (e) {
+    } catch  {
       mapped.sort((a, b) => String(a.nickname || '').localeCompare(String(b.nickname || '')));
     }
 

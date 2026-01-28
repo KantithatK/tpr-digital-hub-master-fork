@@ -215,6 +215,32 @@ export default function CreateProjectTab(props) {
     }
   }, []);
 
+  // Debug: log Project Admin state when opening edit dialog
+  React.useEffect(() => {
+    try {
+      if (!dialogForm?.id) return;
+      const adminId = dialogForm?.project_admin_id ?? dialogForm?.principal_id ?? null;
+      const adminText = dialogForm?.projectAdmin ?? dialogForm?.principal ?? '';
+      const employeesLoaded = Array.isArray(employees);
+      const employeesCount = employeesLoaded ? employees.length : 0;
+      console.debug('[CreateProjectTab][DEBUG] edit-open', {
+        projectId: dialogForm.id,
+        project_admin_id: adminId,
+        projectAdminText: adminText,
+        employeesLoaded,
+        employeesCount,
+      });
+
+      if (adminId && employeesLoaded && employeesCount > 0) {
+        const found = (employees || []).find((x) => String(x.id) === String(adminId));
+        if (found) console.debug('[CreateProjectTab][DEBUG] resolved Project Admin:', formatEmployee(found));
+        else console.warn('[CreateProjectTab][WARN] project_admin_id present but not found in employees list:', adminId);
+      }
+    } catch {
+      // ignore logging errors
+    }
+  }, [dialogForm, employees]);
+
   // ===== focus border ต้องเป็นสีดำ =====
   const pageSx = {
     '& .MuiOutlinedInput-notchedOutline': { borderColor: 'divider', transition: 'border-color 120ms ease' },

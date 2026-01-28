@@ -9,6 +9,8 @@ import Skeleton from '@mui/material/Skeleton';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
+import Menu from '@mui/material/Menu';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -55,7 +57,7 @@ import { supabase } from '../../../lib/supabaseClient';
 const BRAND = '#ff4059';
 
 // use Thai locale for datepickers
-try { dayjs.locale && dayjs.locale('th'); } catch (e) { /* ignore */ }
+try { dayjs.locale && dayjs.locale('th'); } catch  { /* ignore */ }
 
 function genWorkCode() {
   try {
@@ -71,12 +73,6 @@ function formatMoneyTHB(n) {
   return `${num.toLocaleString('th-TH', { maximumFractionDigits: 0 })}`;
 }
 
-function statusTh(status) {
-  if (status === 'Active') return 'กำลังดำเนินการ';
-  if (status === 'Planning') return 'อยู่ระหว่างวางแผน';
-  if (status === 'Completed') return 'เสร็จสิ้น';
-  return status || '-';
-}
 
 function clamp(n, a, b) {
   const x = Number(n);
@@ -135,12 +131,26 @@ function StatusPill({ status }) {
 
 function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, onGoWorkRow }) {
   const list = Array.isArray(rows) ? rows : [];
+  const [menuAnchor, setMenuAnchor] = React.useState(null);
+  const [menuRow, setMenuRow] = React.useState(null);
+
+  const handleOpenMenu = (e, r) => {
+    e.stopPropagation();
+    setMenuAnchor(e.currentTarget || e.target);
+    setMenuRow(r || null);
+  };
+
+  const handleCloseMenu = () => {
+    setMenuAnchor(null);
+    setMenuRow(null);
+  };
 
   return (
     <TableContainer sx={{ width: '100%' }}>
       <Table size="small" sx={{ '& th, & td': { py: 1, px: 1.5, borderBottom: 'none' } }}>
         <TableHead>
           <TableRow sx={{ bgcolor: 'transparent' }}>
+            <TableCell sx={{ fontWeight: 700, color: 'text.secondary', width: 70, textAlign: 'center' }}>ลำดับ</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary' }}>ชื่อ Work</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', width: 130 }}>สถานะ</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', width: 170 }}>ความคืบหน้า</TableCell>
@@ -155,6 +165,9 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
           {loading
             ? Array.from({ length: 4 }).map((_, i) => (
                 <TableRow key={`sk-${i}`}>
+                  <TableCell sx={{ textAlign: 'center' }}>
+                    <Skeleton variant="text" width={48} />
+                  </TableCell>
                   <TableCell>
                     <Skeleton variant="text" width={240} />
                   </TableCell>
@@ -176,15 +189,13 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
                   </TableCell>
                 </TableRow>
               ))
-            : list.map((r, idx) => {
+                : list.map((r, idx) => {
                 const key = r.id || r.code || idx;
                 const progressPct = clamp(Number(r.progressPct || 0), 0, 100);
-                const used = Number(r.usedBudget || 0);
-                const total = Number(r.totalBudget || 0);
 
                 const budgetMeta = r.budgetMeta || null;
 
-                return (
+                  return (
                   <TableRow
                     key={key}
                     hover
@@ -197,6 +208,7 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
                       }
                     }}
                   >
+                    <TableCell sx={{ textAlign: 'center' }}>{`W-${idx + 1}`}</TableCell>
                     <TableCell>{r.name || '-'}</TableCell>
                     <TableCell>
                       <StatusPill status={r.status || 'ยังไม่เริ่ม'} />
@@ -263,38 +275,59 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
                     </TableCell>
 
                     <TableCell sx={{ textAlign: 'center' }}>
-                      <Tooltip title="แก้ไข" placement="top">
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditRow?.(r);
-                          }}
-                          aria-label="แก้ไข"
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="ลบ" placement="top">
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteRow?.(r);
-                          }}
-                          aria-label="ลบ"
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                      <IconButton
+                        onClick={(e) => handleOpenMenu(e, r)}
+                        aria-label="เมนูเพิ่มเติม"
+                        aria-controls={menuAnchor ? 'ws-row-menu' : undefined}
+                        aria-haspopup="true"
+                      >
+                        <MoreHorizIcon />
+                      </IconButton>
                     </TableCell>
                   </TableRow>
                 );
               })}
 
+          <Menu
+            id="ws-row-menu"
+            anchorEl={menuAnchor}
+            open={Boolean(menuAnchor)}
+            onClose={handleCloseMenu}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                try {
+                  onEditRow?.(menuRow);
+                } catch {
+                  // ignore
+                }
+                handleCloseMenu();
+              }}
+            >
+              <EditIcon  fontSize="small" sx={{ mr: 1 }} /> แก้ไข
+            </MenuItem>
+
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                try {
+                  onDeleteRow?.(menuRow);
+                } catch {
+                  // ignore
+                }
+                handleCloseMenu();
+              }}
+            >
+              <DeleteIcon color="error" fontSize="small" sx={{ mr: 1 }} /> ลบข้อมูล
+            </MenuItem>
+          </Menu>
+
           {!loading && list.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7}>
+              <TableCell colSpan={8}>
                 <Box sx={{ py: 1 }}>
                   <Typography sx={{ fontSize: 13, fontWeight: 900 }}>ยังไม่มี Work</Typography>
                   <Typography variant="caption" color="text.secondary">*กดปุ่ม + เพื่อเพิ่ม Work</Typography>
@@ -411,7 +444,6 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
   }, [onGoWork, project]);
 
   const projectId = project?.id || null;
-  const projectCode = project?.project_code || project?.code || '';
   const projectName = project?.name_th || project?.name || project?.name_en || '';
   const updatedAt = project?.updated_at || project?.created_at || project?.start_date || project?.start || '-';
   const budgetTotalNum = Number(project?.budget || 0);
@@ -534,7 +566,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         let budgetMeta = null;
         try {
           budgetMeta = Projects.getWorkstreamBudgetMeta ? Projects.getWorkstreamBudgetMeta(r) : null;
-        } catch (e) {
+        } catch  {
           budgetMeta = null;
         }
 
@@ -781,13 +813,13 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         let wsLine = null;
         try {
           wsSummary = await Projects.getWorkstreamsSummary(supabase, projectId);
-        } catch (e) {
+        } catch {
           wsSummary = null;
         }
 
         try {
           wsLine = await Projects.getWorkstreamsLineSeries(supabase, projectId);
-        } catch (e) {
+        } catch {
           wsLine = null;
         }
 
@@ -795,7 +827,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         try {
           setWorkSummary(wsSummary);
           setWorkLine(wsLine);
-        } catch (e) {
+        } catch {
           // ignore
         }
 
@@ -874,6 +906,19 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     }
   }, [workLine]);
 
+  
+
+  const wsCategories = React.useMemo(() => {
+    try {
+      const rows = Array.isArray(workstreamsState.rows) ? workstreamsState.rows : [];
+      if (rows.length) return rows.map((_, i) => `W-${i + 1}`);
+      if (Array.isArray(workLine?.categories) && workLine.categories.length) return workLine.categories.map((_, i) => `W-${i + 1}`);
+      return [];
+    } catch {
+      return [];
+    }
+  }, [workstreamsState.rows, workLine]);
+
   const workLineOptions = React.useMemo(() => {
     return {
       chart: { type: 'line', toolbar: { show: false }, fontFamily: 'inherit' },
@@ -881,7 +926,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       stroke: { curve: 'smooth' },
       markers: { size: 4 },
       dataLabels: { enabled: false },
-      xaxis: { categories: Array.isArray(workLine?.categories) ? workLine.categories : [] },
+      xaxis: { categories: Array.isArray(wsCategories) ? wsCategories : [] },
       yaxis: {
         min: 0,
         max: 100,
@@ -893,7 +938,11 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
           formatter: function (val, opts) {
             try {
               const idx = Number(opts?.dataPointIndex || 0);
-              return (workLine && workLine.raw && workLine.raw[idx] && workLine.raw[idx].name) || String(val || '');
+              const wlabel = `W-${idx + 1}`;
+              const nameFromLine = workLine && workLine.raw && workLine.raw[idx] && workLine.raw[idx].name;
+              const nameFromRows = workstreamsState && Array.isArray(workstreamsState.rows) && workstreamsState.rows[idx] && workstreamsState.rows[idx].name;
+              const name = nameFromLine || nameFromRows || '';
+              return name ? `${wlabel} • ${name}` : wlabel;
             } catch {
               return String(val || '');
             }
@@ -904,7 +953,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       grid: { borderColor: '#e5e7eb', strokeDashArray: 3, padding: { top: 6, right: 8, bottom: 6, left: 8 } },
       legend: { show: false },
     };
-  }, [workLine]);
+  }, [workLine, wsCategories, workstreamsState]);
 
   // display values
   const progressPct = clamp(kpi.progressPct, 0, 100);
@@ -950,7 +999,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         formatter: (val) => `${Math.round(Number(val || 0))}%`,
       },
       xaxis: {
-        categories: ['ความคืบหน้า (Progress)', 'งบที่ใช้ไป (WIP + AR)'],
+        categories: ['ความคืบหน้า', 'งบที่ใช้ไป'],
         min: 0,
         max: 100,
         labels: { formatter: (val) => `${Math.round(Number(val || 0))}%` },
@@ -1019,7 +1068,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
           </Button>
           <Box sx={{ opacity: 0.55, color: 'text.secondary' }}>›</Box>
           <Typography variant="body2" color="text.secondary">
-            {projectCode || '-'}
+            {projectName || '-'}
           </Typography>
           <Box sx={{ opacity: 0.55, color: 'text.secondary' }}>·</Box>
           <Typography variant="body2" color="text.secondary">
@@ -1266,7 +1315,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               ) : (
                 <>
                   <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
-                    AR
+                    AR (ลูกหนี้การค้า)
                   </Typography>
                   <Typography sx={{ fontSize: 26, fontWeight: 900, mt: 0.5, color: '#8B5CF6', lineHeight: 1.15 }}>
                     {formatMoneyTHB(ar)}
@@ -1326,37 +1375,52 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                   <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
                     ความคืบหน้า vs งบที่ใช้ไป
                   </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
-                    {kpi.pv_budgetTotal
-                      ? `${formatMoneyTHB(kpi.pv_usedAmount)} / ${formatMoneyTHB(kpi.pv_budgetTotal)}`
-                      : '—'}
+                  <Typography
+                    component="div"
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                      color: kpi.pv_health === 'RISK' ? '#ff4059' : kpi.pv_health === 'WARN' ? '#fdca01' : '#08d84c',
+                    }}
+                  >
+                    {kpi.pv_health === 'RISK' ? (
+                      <ErrorRoundedIcon sx={{ fontSize: 18 }} />
+                    ) : kpi.pv_health === 'WARN' ? (
+                      <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />
+                    ) : (
+                      <CheckCircleRoundedIcon sx={{ fontSize: 18 }} />
+                    )}
+
+                    {kpi.pv_health === 'RISK' ? 'เสี่ยง' : kpi.pv_health === 'WARN' ? 'ต้องติดตาม' : 'คุมงบดี'}
                   </Typography>
                 </Stack>
 
                 <Box sx={{ width: '100%', overflowX: 'hidden' }}>
                   <ReactApexChart options={pvOptions} series={pvSeries} type="bar" height={150} />
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
-                    *สีเขียว = งานคืบหน้า, สีแดง = ใช้งบไปแล้ว
+                    
                   </Typography>
                 </Box>
 
                 <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1 }}>
                   <Typography variant="caption" color="text.secondary">
-                    {`ส่วนต่าง (Progress - Used) ${
+                    {`ส่วนต่าง (ความคืบหน้า - งบที่ใช้ไป) ${
                       Number.isFinite(Number(kpi.pv_deltaPct))
                         ? `${kpi.pv_deltaPct >= 0 ? '+' : ''}${kpi.pv_deltaPct}%`
                         : '—'
                     }`}
                   </Typography>
                   <Typography
-                    variant="caption"
                     sx={{
                       fontWeight: 700,
                       color:
                         kpi.pv_health === 'RISK' ? '#ff4059' : kpi.pv_health === 'WARN' ? '#fdca01' : '#08d84c',
                     }}
                   >
-                    {kpi.pv_health === 'RISK' ? 'เสี่ยง' : kpi.pv_health === 'WARN' ? 'ต้องติดตาม' : 'คุมงบดี'}
                   </Typography>
                 </Stack>
               </>
@@ -1390,7 +1454,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                 </Typography>
 
                 <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
-                  {workSummary ? `แสดง ${workSummary.doneCount}/${workSummary.totalCount} Work` : '—'}
+                  {workSummary ? `แสดง ${workSummary.totalCount} Work` : '—'}
                 </Typography>
               </Stack>
 
@@ -1468,6 +1532,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
             <Table sx={{ '& th, & td': { py: 1, px: 1.5, borderBottom: 'none' } }}>
               <TableHead>
                 <TableRow sx={{ bgcolor: 'transparent' }}>
+                  <TableCell><Skeleton variant="text" width={48} /></TableCell>
                   <TableCell><Skeleton variant="text" width={120} /></TableCell>
                   <TableCell><Skeleton variant="text" width={80} /></TableCell>
                   <TableCell><Skeleton variant="text" width={120} /></TableCell>
@@ -1479,6 +1544,9 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               <TableBody>
                 {Array.from({ length: 4 }).map((_, i) => (
                   <TableRow key={`hdr-sk-${i}`}>
+                    <TableCell sx={{ textAlign: 'center' }}>
+                      <Skeleton variant="text" width={48} />
+                    </TableCell>
                     <TableCell>
                       <Skeleton variant="text" width={240} />
                     </TableCell>

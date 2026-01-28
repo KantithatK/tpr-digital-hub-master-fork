@@ -89,7 +89,7 @@ function TabPanel(props) {
     </div>
   );
 
-  
+
 }
 
 function a11yProps(index) {
@@ -653,8 +653,22 @@ export default function ProjectsList(props) {
       } catch (err) {
         console.warn('Load project members failed (ignored):', err);
       }
-
-      setFormFromProject(p, teamIds);
+      // Ensure we have the full project row (some list helpers omit fields like project_admin_id)
+      try {
+        if (projectId) {
+          const { data: fullProject, error: fullErr } = await supabase.from('tpr_projects').select('*').eq('id', projectId).maybeSingle();
+          if (!fullErr && fullProject) {
+            setFormFromProject({ ...p, ...fullProject }, teamIds);
+          } else {
+            setFormFromProject(p, teamIds);
+          }
+        } else {
+          setFormFromProject(p, teamIds);
+        }
+      } catch (fetchErr) {
+        console.warn('Failed to fetch full project row (ignored):', fetchErr);
+        setFormFromProject(p, teamIds);
+      }
       gotoTab(TAB.CREATE);
     },
     [TAB.CREATE, gotoTab, setFormFromProject]
@@ -667,19 +681,19 @@ export default function ProjectsList(props) {
           <Skeleton variant="text" width={260} height={44} />
 
           <Box sx={{ mt: 2, display: 'flex', gap: 1.2, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Skeleton variant="rectangular" width={320} height={40} sx={{ borderRadius: 999 }} />
-            <Skeleton variant="rectangular" width={120} height={40} sx={{ borderRadius: 999 }} />
-            <Skeleton variant="rectangular" width={120} height={40} sx={{ borderRadius: 999 }} />
-            <Skeleton variant="rectangular" width={160} height={40} sx={{ borderRadius: 999 }} />
+            <Skeleton width={320} height={40} />
+            <Skeleton width={120} height={40} />
+            <Skeleton width={120} height={40} />
+            <Skeleton width={160} height={40} />
           </Box>
 
           <Box sx={{ mt: 3 }}>
             {Array.from({ length: 6 }).map((_, i) => (
-              <Box key={i} sx={{ display: 'flex', gap: 2, alignItems: 'center', py: 1.5 }}>
-                <Skeleton variant="rectangular" width="40%" height={28} />
-                <Skeleton variant="rectangular" width="20%" height={28} />
-                <Skeleton variant="rectangular" width="15%" height={28} />
-                <Skeleton variant="rectangular" width="15%" height={28} />
+              <Box key={i} sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <Skeleton width="40%" height={40} />
+                <Skeleton width="20%" height={40} />
+                <Skeleton width="15%" height={40} />
+                <Skeleton width="15%" height={40} />
               </Box>
             ))}
           </Box>
@@ -718,7 +732,12 @@ export default function ProjectsList(props) {
           onChange={handleTabChange}
           aria-label="แท็บโครงการ"
           variant="fullWidth"
-          sx={{ display: 'none', borderBottom: 1, borderColor: 'divider', '& .MuiTabs-indicator': { bgcolor: colors.primary } }}
+          sx={{
+            display: 'none',
+            borderBottom: 1,
+            borderColor: 'divider',
+            '& .MuiTabs-indicator': { bgcolor: colors.primary },
+          }}
         >
           <Tab sx={tabSx} label="ข้อมูลโครงการ" value={TAB.LIST} {...a11yProps(TAB.LIST)} />
           <Tab sx={tabSx} label="แผนงานโครงการ" value={TAB.WORK} {...a11yProps(TAB.WORK)} />
@@ -737,23 +756,19 @@ export default function ProjectsList(props) {
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
-              minHeight: 520,
             }}
           >
             {/* Top Bar (Product-list style) */}
             <Box
               sx={{
-                px: 2.5,
-                py: 2,
                 display: 'flex',
                 alignItems: { xs: 'stretch', md: 'center' },
                 justifyContent: 'space-between',
                 flexDirection: { xs: 'column', md: 'row' },
-                gap: 1.5,
               }}
             >
               <Box>
-                <Typography  sx={{ fontSize: 32, fontWeight: 800, color: '#0f172a' }}>รายการโครงการ</Typography>
+                <Typography sx={{ fontSize: 32, fontWeight: 800, color: '#0f172a' }}>รายการโครงการ</Typography>
               </Box>
 
               <Box
@@ -843,7 +858,14 @@ export default function ProjectsList(props) {
                       }}
                     >
                       <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: (st === 'Active' ? '#08d84c' : st === 'Completed' ? '#8B5CF6' : '#fdca01') }} />
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            bgcolor: st === 'Active' ? '#08d84c' : st === 'Completed' ? '#8B5CF6' : '#fdca01',
+                          }}
+                        />
                         {Projects.statusTh(st)}
                       </Box>
                     </MenuItem>
@@ -873,34 +895,42 @@ export default function ProjectsList(props) {
             </Box>
 
             {/* Table */}
-            <TableContainer sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', px: 1.5, pb: 2 }}>
+            <TableContainer
+              sx={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: 'auto',
+                overflowX: 'auto', // ✅ แก้: ให้เลื่อนแนวนอนได้ แทนการตัดทิ้ง
+                px: 1.5,
+                pb: 2,
+              }}
+            >
               {(filtered || []).length === 0 ? (
                 <Box sx={{ py: 6, display: 'flex', justifyContent: 'center' }}>
                   <Typography color="text.secondary">ไม่พบข้อมูล</Typography>
                 </Box>
               ) : (
-                <Table size="small" sx={{ '& th, & td': { py: 1, px: 1.5, borderBottom: 'none' } }}>
+                <Table
+                  size="small"
+                  sx={{
+                    minWidth: 980, // ✅ แก้: กันตารางยุบจนดูเหมือนหาย
+                    '& th, & td': { py: 1, px: 1.5, borderBottom: 'none' },
+                  }}
+                >
                   <TableHead>
                     <TableRow>
-                      {[
-                        'โครงการ',
-                        'ลูกค้า',
-                        'วันที่เริ่ม',
-                        'วันที่สิ้นสุด',
-                        'สถานะ',
-                        'ความคืบหน้า',
-                        'จัดการ',
-                      ].map((h, idx) => (
+                      {['โครงการ', 'ลูกค้า', 'วันที่เริ่ม', 'วันที่สิ้นสุด', 'สถานะ', 'ความคืบหน้า', 'จัดการ'].map((h, idx) => (
                         <TableCell
                           key={h}
                           sx={{
                             fontWeight: 800,
                             fontSize: 15,
                             color: '#64748b',
-                            borderBottom: '1px solid rgba(2,6,23,0.06)',
+                            borderBottom: 'none',
                             py: 1.2,
                             ...(idx === 6 ? { textAlign: 'right' } : null),
                             ...(idx === 4 ? { textAlign: 'center', width: 180 } : null),
+                            ...(idx === 0 ? { width: 420 } : null), // ✅ แก้: ล็อคความกว้างคอลัมน์ชื่อโครงการ
                           }}
                         >
                           {h}
@@ -919,9 +949,6 @@ export default function ProjectsList(props) {
                       const projectStart = (p.start_date ?? p.start) || '';
                       const projectEnd = (p.end_date ?? p.end) || '';
 
-                      /* budget/used removed from list UI */
-
-                      // status pill color
                       const s = String(p.status || '');
                       const statusStyles =
                         s === 'Active'
@@ -936,10 +963,7 @@ export default function ProjectsList(props) {
                           hover
                           sx={{
                             cursor: 'pointer',
-                            '& td': {
-                              borderBottom: '1px solid rgba(2,6,23,0.06)',
-                              py: 1.4,
-                            },
+                            '& td': { borderBottom: 'none', py: 1.4 },
                             '&:hover td': { bgcolor: '#f8fafc' },
                           }}
                           onClick={() => {
@@ -947,25 +971,30 @@ export default function ProjectsList(props) {
                             gotoTab(TAB.DASHBOARD);
                           }}
                         >
-                          <TableCell>
-                            <Typography sx={{ fontSize: 14, color: '#0f172a',  lineHeight: 1.2 }} noWrap>
-                              {projectName || '-'}
-                            </Typography>
+                          <TableCell sx={{ width: 200 }}>
+                            {/* ✅ แก้: ตัดชื่อยาว ๆ แบบ ellipsis และไม่ดันคอลัมน์อื่น */}
+                            <Box sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              <Typography sx={{ fontSize: 14, color: '#0f172a', lineHeight: 1.2 }} component="span">
+                                {projectName || '-'}
+                              </Typography>
+                            </Box>
                           </TableCell>
 
-                          <TableCell>
-                            <Typography sx={{ fontSize: 14, color: '#0f172a' }} noWrap>
-                              {projectClient || '-'}
-                            </Typography>
+                          <TableCell sx={{ width: 200 }}>
+                            <Box sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              <Typography sx={{ fontSize: 14, color: '#0f172a', lineHeight: 1.2 }} component="span">
+                                {projectClient || '-'}
+                              </Typography>
+                            </Box>
                           </TableCell>
 
-                          <TableCell>
+                          <TableCell sx={{ width: 250, maxWidth: 250 }}>
                             <Typography sx={{ fontSize: 14, color: '#334155' }} noWrap>
                               {formatDate(projectStart)}
                             </Typography>
                           </TableCell>
 
-                          <TableCell>
+                          <TableCell sx={{ width: 250, maxWidth: 250 }}>
                             <Typography sx={{ fontSize: 14, color: '#334155' }} noWrap>
                               {formatDate(projectEnd)}
                             </Typography>
@@ -976,7 +1005,7 @@ export default function ProjectsList(props) {
                               label={
                                 <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
                                   <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: statusStyles.color }} />
-                                  <Box sx={{ fontWeight: 500, fontSize: 14 }}>{Projects.statusTh(p.status) || p.status || '-'}</Box>
+                                  <Box sx={{ fontWeight: 500, fontSize: 13 }}>{Projects.statusTh(p.status) || p.status || '-'}</Box>
                                 </Box>
                               }
                               variant="outlined"
@@ -1033,15 +1062,9 @@ export default function ProjectsList(props) {
                             )}
                           </TableCell>
 
-                          {/* งบประมาณ และ ใช้ไป ถูกลบออกจากตารางรายการตามคำขอ */}
-
                           <TableCell sx={{ textAlign: 'right', width: 80 }}>
-                            <IconButton
-                              size="small"
-                              aria-label="เมนูการทำงาน"
-                              onClick={(e) => openActionMenu(e, p)}
-                            >
-                              <MoreHorizIcon fontSize="small" />
+                            <IconButton aria-label="เมนูการทำงาน" onClick={(e) => openActionMenu(e, p)}>
+                              <MoreHorizIcon />
                             </IconButton>
                           </TableCell>
                         </TableRow>
@@ -1054,13 +1077,13 @@ export default function ProjectsList(props) {
 
             <Box
               sx={{
+                mt: 3,
                 px: 2.5,
                 pb: 2,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: 2,
-                borderTop: '1px solid rgba(2,6,23,0.06)',
               }}
             >
               <Button
@@ -1078,9 +1101,7 @@ export default function ProjectsList(props) {
                 onChange={(_e, v) => setPage(v)}
                 color="standard"
                 shape="rounded"
-                sx={{
-                  '& .MuiPaginationItem-root': { fontWeight: 700 },
-                }}
+                sx={{ '& .MuiPaginationItem-root': { fontWeight: 700 } }}
               />
 
               <Button
@@ -1115,7 +1136,11 @@ export default function ProjectsList(props) {
               </MenuItem>
 
               <MenuItem
-                disabled={!!deletingMap[String(actionMenu?.project?.id ?? actionMenu?.project?.project_id ?? actionMenu?.project?.projectId ?? '')]}
+                disabled={
+                  !!deletingMap[
+                  String(actionMenu?.project?.id ?? actionMenu?.project?.project_id ?? actionMenu?.project?.projectId ?? '')
+                  ]
+                }
                 onClick={(e) => {
                   e.stopPropagation();
                   const p = actionMenu.project;
@@ -1124,8 +1149,8 @@ export default function ProjectsList(props) {
                 }}
               >
                 <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: '#d32f2f' }}>
-                  <DeleteIcon fontSize="small" />
-                  ลบ
+                  <DeleteIcon color="error" fontSize="small" />
+                  ลบข้อมูล
                 </Box>
               </MenuItem>
             </Menu>
@@ -1182,7 +1207,7 @@ export default function ProjectsList(props) {
             onEdit={() => {
               if (!selectedProject) return;
               openEditInCreateTab(selectedProject);
-            }} 
+            }}
             onGoWork={(payload) => {
               if (!selectedProject) return;
 
@@ -1198,6 +1223,7 @@ export default function ProjectsList(props) {
             }}
           />
         </TabPanel>
+
         <TabPanel value={tab} index={TAB.SUBWORKS}>
           {tabLoading ? (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
@@ -1223,4 +1249,5 @@ export default function ProjectsList(props) {
       </Snackbar>
     </Box>
   );
+
 }
