@@ -1,9 +1,11 @@
 // ===== ProjectsList.jsx (แทนทั้งไฟล์) =====
 import * as React from 'react';
-import TeamPanel from './TeamPanel';
+
 import WorkstreamsPanel from './WorkstreamsPanel.jsx';
 import WorkstreamDetail from './WorkstreamDetail.jsx';
 import CreateProjectTab from './CreateProjectTab';
+import ProjectsDashboard from './ProjectsDashboard';
+import ProjectSub from './ProjectSub';
 
 import Paper from '@mui/material/Paper';
 import Table from '@mui/material/Table';
@@ -18,25 +20,33 @@ import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import InputAdornment from '@mui/material/InputAdornment';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Pagination from '@mui/material/Pagination';
 
 import dayjs from 'dayjs';
 import 'dayjs/locale/th';
 import { supabase } from '../../../lib/supabaseClient';
 
-import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import CircularProgress from '@mui/material/CircularProgress';
 import LinearProgress from '@mui/material/LinearProgress';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
+import Skeleton from '@mui/material/Skeleton';
 import DeleteIcon from '@mui/icons-material/Delete';
+import SearchIcon from '@mui/icons-material/Search';
+import FilterListIcon from '@mui/icons-material/FilterList';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
+import AddCircleIcon from '@mui/icons-material/AddCircle';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 
 import colors from '../../../theme/colors';
-import ContractsPanel from './ContractsPanel';
-import ProjectGeneralPanel from './ProjectGeneralPanel';
-import ProjectsDashboard from './ProjectsDashboard';
 
-// ✅ เพิ่ม: ใช้ดึงสมาชิกจาก tpr_project_members
+// ✅ ใช้ดึงสมาชิกจาก tpr_project_members
 import Projects from '../../functions/Projects';
 
 function formatDate(v) {
@@ -51,6 +61,7 @@ function formatDate(v) {
 
 function TabPanel(props) {
   const { children, value, index, ...other } = props;
+
   return (
     <div
       role="tabpanel"
@@ -58,14 +69,27 @@ function TabPanel(props) {
       id={`projects-tabpanel-${index}`}
       aria-labelledby={`projects-tab-${index}`}
       {...other}
+      style={{ height: '100%' }}
     >
       {value === index && (
-        <Box sx={{ p: 2, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box
+          sx={{
+            p: 2,
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            minHeight: 0,
+            bgcolor: 'transparent',
+          }}
+        >
           {children}
         </Box>
       )}
     </div>
   );
+
+  
 }
 
 function a11yProps(index) {
@@ -83,17 +107,15 @@ export default function ProjectsList(props) {
   const TAB = React.useMemo(
     () => ({
       LIST: 0,
-      GENERAL: 1,
-      CONTRACT: 2,
-      WORK: 3,
-      TEAM: 4,
-      CREATE: 5,
-      DASHBOARD: 6,
+      WORK: 1,
+      CREATE: 2,
+      DASHBOARD: 3,
+      SUBWORKS: 4,
     }),
     []
   );
 
-  const [tab, setTab] = React.useState(0);
+  const [tab, setTab] = React.useState(TAB.LIST);
   const [tabLoading, setTabLoading] = React.useState(false);
   const [tabReady, setTabReady] = React.useState(true);
 
@@ -104,16 +126,31 @@ export default function ProjectsList(props) {
     window.setTimeout(() => {
       setTabLoading(false);
       setTabReady(true);
-    }, 400);
+    }, 350);
   }, []);
 
-  const handleTabChange = (event, newValue) => {
+  const handleTabChange = (_event, newValue) => {
     gotoTab(newValue);
   };
 
   const [search, setSearch] = React.useState('');
   const [deletingMap, setDeletingMap] = React.useState({});
   const [projects, setProjects] = React.useState([]);
+
+  const [progressMap, setProgressMap] = React.useState({});
+  const [loadingProgressMap, setLoadingProgressMap] = React.useState(false);
+
+  const [page, setPage] = React.useState(1);
+  const pageSize = 10;
+
+  const [actionMenu, setActionMenu] = React.useState({ anchorEl: null, project: null });
+  const actionMenuOpen = Boolean(actionMenu?.anchorEl);
+  const [filterAnchorEl, setFilterAnchorEl] = React.useState(null);
+  const [filterStatus, setFilterStatus] = React.useState('');
+
+  // ✅ สิทธิ์แสดงปุ่ม "สร้างโครงการ" (เฉพาะ: CEO, Admin, Accounting)
+  const [canCreateProject, setCanCreateProject] = React.useState(false);
+  const [loadingInitial, setLoadingInitial] = React.useState(true);
 
   // ✅ saving state (CreateProjectTab จะเป็นคน set ผ่าน callback)
   const [dialogSaving, setDialogSaving] = React.useState(false);
@@ -177,12 +214,12 @@ export default function ProjectsList(props) {
     setSnackbarOpen(true);
   };
 
-  const handleSnackbarClose = (event, reason) => {
+  const handleSnackbarClose = (_event, reason) => {
     if (reason === 'clickaway') return;
     setSnackbarOpen(false);
   };
 
-  const formatEmployee = (emp) => {
+  const formatEmployee = React.useCallback((emp) => {
     if (!emp) return '';
     const thParts = [(emp.first_name_th || ''), (emp.last_name_th || '')]
       .map((s) => (s || '').toString().trim())
@@ -195,7 +232,7 @@ export default function ProjectsList(props) {
     const nick = (emp.nickname_th || emp.nickname_en || '').toString().trim();
     if (nick) return nick;
     return (emp.employee_code || emp.employee_id || emp.id || '').toString();
-  };
+  }, []);
 
   const resetCreateForm = () => {
     setDialogForm({
@@ -241,8 +278,8 @@ export default function ProjectsList(props) {
   };
 
   // ✅ เอาไว้สำหรับ “แก้ไข/ดูรายละเอียด” (ไม่ใช่ flow สร้าง)
-  // ✅ แก้: รองรับเติม initial_team_ids ตอนแก้ไข
-  const setFormFromProject = (p, initialTeamIds = []) => {
+  // ✅ รองรับเติม initial_team_ids ตอนแก้ไข
+  const setFormFromProject = React.useCallback((p, initialTeamIds = []) => {
     if (!p) return;
 
     const custRec = (customers || []).find(
@@ -297,7 +334,7 @@ export default function ProjectsList(props) {
 
       image_path: p.image_path || '',
 
-      // ✅ สำคัญ: เติมทีมจาก tpr_project_members ตอนแก้ไข
+      // ✅ เติมทีมจาก tpr_project_members ตอนแก้ไข
       initial_team_ids: Array.isArray(initialTeamIds) ? initialTeamIds : [],
     }));
 
@@ -315,7 +352,7 @@ export default function ProjectsList(props) {
     } catch {
       setPreviewSrc('');
     }
-  };
+  }, [customers, employees, formatEmployee]);
 
   const handleDialogChange = (field, value) => setDialogForm((prev) => ({ ...prev, [field]: value }));
 
@@ -372,46 +409,204 @@ export default function ProjectsList(props) {
 
   const filtered = (projects || []).filter((p) => {
     const q = (search || '').trim().toLowerCase();
+    if (filterStatus) {
+      if (String(p.status || '') !== String(filterStatus)) return false;
+    }
     if (!q) return true;
     const code = String(p.project_code || p.code || '').toLowerCase();
     const name = String(p.name_th || p.name || p.name_en || '').toLowerCase();
     return code.includes(q) || name.includes(q);
   });
 
-  const paginated = filtered || [];
+  React.useEffect(() => {
+    setPage(1);
+  }, [search]);
 
-  const statusMap = {
-    Active: 'กำลังดำเนินการ',
-    Planning: 'อยู่ระหว่างวางแผน',
-    Completed: 'เสร็จสิ้น',
+  const totalPages = Math.max(1, Math.ceil((filtered || []).length / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const paginated = (filtered || []).slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  const closeActionMenu = React.useCallback(() => {
+    setActionMenu({ anchorEl: null, project: null });
+  }, []);
+
+  const openActionMenu = React.useCallback((event, project) => {
+    event.stopPropagation();
+    setActionMenu({ anchorEl: event.currentTarget, project });
+  }, []);
+
+  const exportProjectsCsv = () => {
+    const rows = Array.isArray(filtered) ? filtered : [];
+
+    const csvEscape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+    const header = [
+      'รหัสโครงการ',
+      'ชื่อโครงการ',
+      'ลูกค้า',
+      'วันที่เริ่ม',
+      'วันที่สิ้นสุด',
+      'สถานะ',
+      'ความคืบหน้า(%)',
+      'งบประมาณ',
+      'ใช้ไป',
+    ];
+
+    const body = rows.map((p) => {
+      const projectCode = p.project_code ?? p.code ?? '';
+      const projectName = p.name_th ?? p.name ?? p.name_en ?? '';
+      const projectClient = (p.customer_name ?? p.customer) || findCustomerDisplay(p.customer_id) || p.client || '';
+      const projectStart = (p.start_date ?? p.start) || '';
+      const projectEnd = (p.end_date ?? p.end) || '';
+
+      const progress = typeof p.progress === 'number' ? String(p.progress) : '';
+      const budget = Projects.formatMoneyTHB(p.budget);
+      const spent = Projects.formatMoneyTHB(p.spent_amount || 0);
+
+      return [
+        projectCode,
+        projectName,
+        projectClient,
+        formatDate(projectStart),
+        formatDate(projectEnd),
+        Projects.statusTh(p.status) || p.status || '',
+        progress,
+        budget,
+        spent,
+      ];
+    });
+
+    const csv = '\uFEFF' + [header, ...body].map((r) => r.map(csvEscape).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `projects_${dayjs().format('YYYYMMDD_HHmm')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
-  // initial load: customers + employees + projects
+  // ✅ check current user role for create permission
   React.useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const [custRes, empRes, projRes] = await Promise.all([
+        let userEmail = '';
+        if (supabase.auth && supabase.auth.getUser) {
+          const { data } = await supabase.auth.getUser();
+          userEmail = data?.user?.email ?? '';
+        } else if (supabase.auth && supabase.auth.user) {
+          const u = supabase.auth.user ? supabase.auth.user() : null;
+          userEmail = u?.email ?? '';
+        }
+
+        userEmail = (userEmail || '').toString().trim().toLowerCase();
+        if (!userEmail) {
+          if (mounted) setCanCreateProject(false);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('v_employee_users_with_roles')
+          .select('role_label, role_name_th, role_name_en')
+          .eq('email', userEmail)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        const roleLabel = (data?.role_label || data?.role_name_th || data?.role_name_en || '').toString().trim();
+        const allowed = new Set(['ประธานเจ้าหน้าที่บริหาร', 'ผู้ดูแลระบบ', 'ฝ่ายบัญชี']);
+        if (mounted) setCanCreateProject(allowed.has(roleLabel));
+      } catch (e) {
+        console.error('Failed to load current user role (create project permission)', e);
+        if (mounted) setCanCreateProject(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // initial load: customers + employees + projects
+  React.useEffect(() => {
+    let mounted = true;
+    setLoadingInitial(true);
+    (async () => {
+      try {
+        const [custRes, empRes] = await Promise.all([
           supabase.from('tpr_customers').select('*').order('created_at', { ascending: false }).limit(1000),
           supabase.from('employees').select('*').order('employee_code', { ascending: true }).limit(1000),
-          supabase.from('tpr_projects').select('*').order('created_at', { ascending: false }).limit(1000),
         ]);
+
+        // fetch projects via helper that returns summary fields only
+        const projData = await Projects.getProjectsList(supabase);
+
         if (!mounted) return;
         if (custRes.error) throw custRes.error;
         if (empRes.error) throw empRes.error;
-        if (projRes.error) throw projRes.error;
 
         setCustomers(custRes.data || []);
         setEmployees(empRes.data || []);
-        setProjects((projRes.data || []).map((r) => ({ ...r })));
+        const projList = (projData || []).map((r) => ({ ...r }));
+        setProjects(projList);
+
+        // derive progress per project from workstreams (single query)
+        (async () => {
+          try {
+            const pids = Array.isArray(projList) ? projList.map((x) => x.id).filter(Boolean) : [];
+            if (!pids.length) {
+              setProgressMap({});
+              return;
+            }
+
+            setLoadingProgressMap(true);
+
+            const { data: wsRows, error: wsErr } = await supabase
+              .from('tpr_workstreams')
+              .select('project_id, status')
+              .in('project_id', pids)
+              .eq('deleted', false)
+              .eq('archived', false);
+
+            if (wsErr) throw wsErr;
+
+            const grouped = Object.create(null);
+            for (const w of Array.isArray(wsRows) ? wsRows : []) {
+              const pid = String(w.project_id || '');
+              if (!grouped[pid]) grouped[pid] = { total: 0, done: 0 };
+              grouped[pid].total += 1;
+              if (String(w.status || '') === 'เสร็จแล้ว') grouped[pid].done += 1;
+            }
+
+            const map = Object.create(null);
+            for (const id of pids) {
+              const key = String(id);
+              const g = grouped[key];
+              const pct = g && g.total > 0 ? Math.round((g.done / g.total) * 100) : 0;
+              map[key] = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
+            }
+
+            setProgressMap(map);
+          } catch (err) {
+            console.warn('Failed to load workstreams for progress map', err);
+            setProgressMap({});
+          } finally {
+            setLoadingProgressMap(false);
+          }
+        })();
       } catch (err) {
         console.error('Failed to load initial project data', err);
         handleNotify('โหลดข้อมูลโครงการล้มเหลว', 'error');
-      }
-      try {
-        if (mounted && typeof onReady === 'function') onReady();
-      } catch {
-        // ignore
+      } finally {
+        if (mounted) setLoadingInitial(false);
+        try {
+          if (mounted && typeof onReady === 'function') onReady();
+        } catch {
+          // ignore
+        }
       }
     })();
     return () => {
@@ -439,8 +634,8 @@ export default function ProjectsList(props) {
     '&.Mui-selected': { color: colors.primary, fontWeight: 600 },
   };
 
-  // ✅ helper: ไปหน้า “สร้างโปรเจค” ในโหมดแก้ไข
-  // ✅ แก้: ดึงสมาชิกจาก tpr_project_members แล้วเติม initial_team_ids
+  // ✅ helper: ไปหน้า “สร้าง/แก้ไขโปรเจค” ในโหมดแก้ไข
+  // ✅ ดึงสมาชิกจาก tpr_project_members แล้วเติม initial_team_ids
   const openEditInCreateTab = React.useCallback(
     async (p) => {
       if (!p) return;
@@ -457,20 +652,47 @@ export default function ProjectsList(props) {
         }
       } catch (err) {
         console.warn('Load project members failed (ignored):', err);
-        // ไม่ต้อง throw เพื่อให้ยังแก้ไขข้อมูลโครงการได้
       }
 
       setFormFromProject(p, teamIds);
       gotoTab(TAB.CREATE);
     },
-    [TAB.CREATE, gotoTab, customers, employees]
+    [TAB.CREATE, gotoTab, setFormFromProject]
   );
+
+  if (loadingInitial) {
+    return (
+      <Box sx={{ p: 2 }}>
+        <Paper sx={{ p: 2, bgcolor: '#ffffff', boxShadow: 'none' }} elevation={0}>
+          <Skeleton variant="text" width={260} height={44} />
+
+          <Box sx={{ mt: 2, display: 'flex', gap: 1.2, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Skeleton variant="rectangular" width={320} height={40} sx={{ borderRadius: 999 }} />
+            <Skeleton variant="rectangular" width={120} height={40} sx={{ borderRadius: 999 }} />
+            <Skeleton variant="rectangular" width={120} height={40} sx={{ borderRadius: 999 }} />
+            <Skeleton variant="rectangular" width={160} height={40} sx={{ borderRadius: 999 }} />
+          </Box>
+
+          <Box sx={{ mt: 3 }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Box key={i} sx={{ display: 'flex', gap: 2, alignItems: 'center', py: 1.5 }}>
+                <Skeleton variant="rectangular" width="40%" height={28} />
+                <Skeleton variant="rectangular" width="20%" height={28} />
+                <Skeleton variant="rectangular" width="15%" height={28} />
+                <Skeleton variant="rectangular" width="15%" height={28} />
+              </Box>
+            ))}
+          </Box>
+        </Paper>
+      </Box>
+    );
+  }
 
   return (
     <Box
       sx={{
         p: 0,
-        bgcolor: colors.gray100 || '#f5f5f5',
+        bgcolor: 'transparent',
         minHeight: 'calc(100vh - 64px)',
         display: 'flex',
         flexDirection: 'column',
@@ -486,6 +708,8 @@ export default function ProjectsList(props) {
           flex: 1,
           minHeight: 320,
           boxShadow: 'none',
+          bgcolor: 'transparent',
+          overflow: 'hidden',
         }}
         elevation={0}
       >
@@ -494,225 +718,418 @@ export default function ProjectsList(props) {
           onChange={handleTabChange}
           aria-label="แท็บโครงการ"
           variant="fullWidth"
-          sx={{ borderBottom: 1, borderColor: 'divider', '& .MuiTabs-indicator': { bgcolor: colors.primary } }}
+          sx={{ display: 'none', borderBottom: 1, borderColor: 'divider', '& .MuiTabs-indicator': { bgcolor: colors.primary } }}
         >
           <Tab sx={tabSx} label="ข้อมูลโครงการ" value={TAB.LIST} {...a11yProps(TAB.LIST)} />
-          <Tab sx={tabSx} label="ทั่วไป" value={TAB.GENERAL} {...a11yProps(TAB.GENERAL)} />
-          <Tab sx={tabSx} label="สัญญาและการเงิน" value={TAB.CONTRACT} {...a11yProps(TAB.CONTRACT)} />
           <Tab sx={tabSx} label="แผนงานโครงการ" value={TAB.WORK} {...a11yProps(TAB.WORK)} />
-          <Tab sx={tabSx} label="ทีมงาน" value={TAB.TEAM} {...a11yProps(TAB.TEAM)} />
-          <Tab sx={tabSx} label="สร้างโปรเจค" value={TAB.CREATE} {...a11yProps(TAB.CREATE)} />
+          <Tab sx={tabSx} label="สร้าง/แก้ไขโครงการ" value={TAB.CREATE} {...a11yProps(TAB.CREATE)} />
           <Tab sx={tabSx} label="แดชบอร์ดโครงการ" value={TAB.DASHBOARD} {...a11yProps(TAB.DASHBOARD)} />
+          <Tab sx={tabSx} label="แผนงานย่อย" value={TAB.SUBWORKS} {...a11yProps(TAB.SUBWORKS)} />
         </Tabs>
 
         <TabPanel value={tab} index={TAB.LIST}>
-          <Typography fontWeight={600}>ข้อมูลโครงการ</Typography>
-
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1, mt: 2 }}>
-            <TextField
-              size="small"
-              placeholder="ค้นหา โครงการ (รหัส หรือ ชื่อ)"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              variant="outlined"
-              fullWidth
+          <Box
+            sx={{
+              bgcolor: '#ffffff',
+              borderRadius: 0,
+              boxShadow: 'none',
+              border: 'none',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 520,
+            }}
+          >
+            {/* Top Bar (Product-list style) */}
+            <Box
               sx={{
-                background: 'white',
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
-                '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#000' },
-              }}
-            />
-            <IconButton
-              onClick={() => {
-                resetCreateForm();
-                gotoTab(TAB.CREATE);
-              }}
-              sx={{ borderRadius: '50%', bgcolor: colors.primary, color: '#fff', '&:hover': { bgcolor: colors.primaryDark } }}
-              aria-label="เพิ่มโครงการใหม่"
-            >
-              <AddIcon />
-            </IconButton>
-          </Box>
-
-          {(filtered || []).length > 0 && (
-            <TableContainer
-              sx={{
-                borderRadius: 2,
+                px: 2.5,
+                py: 2,
                 display: 'flex',
-                flexDirection: 'column',
-                flex: 1,
-                overflow: 'auto',
-                bgcolor: 'background.paper',
-                boxShadow: 'none',
-                border: 'none',
+                alignItems: { xs: 'stretch', md: 'center' },
+                justifyContent: 'space-between',
+                flexDirection: { xs: 'column', md: 'row' },
+                gap: 1.5,
               }}
             >
-              <Table
-                size="small"
-                sx={{ minWidth: 800, borderCollapse: 'separate', '& th, & td': { padding: '10px 12px', borderBottom: 'none' } }}
+              <Box>
+                <Typography  sx={{ fontSize: 32, fontWeight: 800, color: '#0f172a' }}>รายการโครงการ</Typography>
+              </Box>
+
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.2,
+                  flexWrap: 'wrap',
+                  justifyContent: { xs: 'flex-start', md: 'flex-end' },
+                }}
               >
-                <TableHead
+                <TextField
+                  size="small"
+                  placeholder="ค้นหาโครงการ"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  variant="outlined"
                   sx={{
-                    '& th': {
-                      position: 'sticky',
-                      top: 0,
-                      background: 'background.paper',
-                      zIndex: 2,
-                      boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.06)',
-                    },
+                    width: { xs: '100%', sm: 320 },
+                    bgcolor: '#f8fafc',
+                    borderRadius: 999,
+                    '& .MuiOutlinedInput-root': { borderRadius: 999 },
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(2,6,23,0.08)' },
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(2,6,23,0.12)' },
+                    '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(2,6,23,0.25)' },
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ color: '#94a3b8' }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+
+                <Button
+                  variant="outlined"
+                  startIcon={<FilterListIcon />}
+                  onClick={(e) => setFilterAnchorEl(e.currentTarget)}
+                  sx={{
+                    borderRadius: 999,
+                    textTransform: 'none',
+                    borderColor: 'rgba(2,6,23,0.12)',
+                    color: '#0f172a',
+                    bgcolor: '#fff',
                   }}
                 >
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 700 }}>รหัสโครงการ</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>ชื่อโครงการ</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>ความสัมพันธ์</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>ลูกค้า</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>วันที่เริ่ม</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>วันที่สิ้นสุด</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>ความคืบหน้า</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textAlign: 'center' }}>จัดการ</TableCell>
-                  </TableRow>
-                </TableHead>
+                  {filterStatus ? Projects.statusTh(filterStatus) : 'ตัวกรอง'}
+                </Button>
 
-                <TableBody>
-                  {(paginated || []).map((p) => {
-                    const pid = p.id ?? p.projectId ?? p.project_id ?? '';
-                    const deleting = !!deletingMap[String(pid)];
+                <Button
+                  variant="outlined"
+                  startIcon={<FileDownloadOutlinedIcon />}
+                  onClick={exportProjectsCsv}
+                  sx={{
+                    borderRadius: 999,
+                    textTransform: 'none',
+                    borderColor: 'rgba(2,6,23,0.12)',
+                    color: '#0f172a',
+                    bgcolor: '#fff',
+                  }}
+                >
+                  ส่งออก CSV
+                </Button>
 
-                    const projectCode = p.project_code ?? p.code ?? '';
-                    const projectName = p.name_th ?? p.name ?? p.name_en ?? '';
-                    const projectClient = (p.customer_name ?? p.customer) || findCustomerDisplay(p.customer_id) || p.client || '';
-                    const projectStart = (p.start_date ?? p.start) || '';
-                    const projectEnd = (p.end_date ?? p.end) || '';
+                <Menu
+                  anchorEl={filterAnchorEl}
+                  open={Boolean(filterAnchorEl)}
+                  onClose={() => setFilterAnchorEl(null)}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                >
+                  <MenuItem
+                    onClick={() => {
+                      setFilterStatus('');
+                      setFilterAnchorEl(null);
+                    }}
+                  >
+                    ทั้งหมด
+                  </MenuItem>
+                  {['Planning', 'Active', 'Completed'].map((st) => (
+                    <MenuItem
+                      key={st}
+                      onClick={() => {
+                        setFilterStatus(st);
+                        setFilterAnchorEl(null);
+                      }}
+                    >
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: (st === 'Active' ? '#08d84c' : st === 'Completed' ? '#8B5CF6' : '#fdca01') }} />
+                        {Projects.statusTh(st)}
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Menu>
 
-                    return (
-                      <TableRow
-                        key={pid || `${projectCode}-${projectName}`}
-                        hover
-                        sx={{ cursor: 'pointer' }}
-                        onClick={() => {
-                          setSelectedProject(p);
-                          gotoTab(TAB.DASHBOARD);
-                        }}
-                      >
-                        <TableCell>{projectCode}</TableCell>
-                        <TableCell>{projectName}</TableCell>
-                        <TableCell>
-                          {(() => {
-                            const parentId = p.parent_project_id ?? p.parent_id ?? null;
-                            if (!parentId) return 'โครงการหลัก';
-                            const parent = (projects || []).find((pp) => String(pp.id) === String(parentId));
-                            const parentCode = parent ? (parent.project_code || parent.code || parent.name_th || parent.name) : null;
-                            return parentCode ? `โครงการย่อยของ ${parentCode}` : `โครงการย่อยของ ${parentId}`;
-                          })()}
+                {canCreateProject ? (
+                  <Button
+                    variant="contained"
+                    startIcon={<AddCircleIcon />}
+                    onClick={() => {
+                      resetCreateForm();
+                      gotoTab(TAB.CREATE);
+                    }}
+                    sx={{
+                      borderRadius: 999,
+                      textTransform: 'none',
+                      bgcolor: '#ff4059',
+                      '&:hover': { bgcolor: '#e63a51' },
+                      boxShadow: 'none',
+                    }}
+                  >
+                    สร้างโครงการ
+                  </Button>
+                ) : null}
+              </Box>
+            </Box>
+
+            {/* Table */}
+            <TableContainer sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', px: 1.5, pb: 2 }}>
+              {(filtered || []).length === 0 ? (
+                <Box sx={{ py: 6, display: 'flex', justifyContent: 'center' }}>
+                  <Typography color="text.secondary">ไม่พบข้อมูล</Typography>
+                </Box>
+              ) : (
+                <Table size="small" sx={{ '& th, & td': { py: 1, px: 1.5, borderBottom: 'none' } }}>
+                  <TableHead>
+                    <TableRow>
+                      {[
+                        'โครงการ',
+                        'ลูกค้า',
+                        'วันที่เริ่ม',
+                        'วันที่สิ้นสุด',
+                        'สถานะ',
+                        'ความคืบหน้า',
+                        'จัดการ',
+                      ].map((h, idx) => (
+                        <TableCell
+                          key={h}
+                          sx={{
+                            fontWeight: 800,
+                            fontSize: 15,
+                            color: '#64748b',
+                            borderBottom: '1px solid rgba(2,6,23,0.06)',
+                            py: 1.2,
+                            ...(idx === 6 ? { textAlign: 'right' } : null),
+                            ...(idx === 4 ? { textAlign: 'center', width: 180 } : null),
+                          }}
+                        >
+                          {h}
                         </TableCell>
-                        <TableCell>{projectClient}</TableCell>
-                        <TableCell>{formatDate(projectStart)}</TableCell>
-                        <TableCell>{formatDate(projectEnd)}</TableCell>
-                        <TableCell>
-                          <Typography variant="body2">
-                            {`${p.status === 'Active' ? '🌳' : p.status === 'Planning' ? '🌱' : p.status === 'Completed' ? '🌴' : '•'} ${
-                              statusMap[p.status] ?? p.status
-                            }`}
-                          </Typography>
-                        </TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
 
-                        <TableCell sx={{ width: 180 }}>
-                          {typeof p.progress === 'number' ? (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Box sx={{ flex: 1 }}>
-                                <LinearProgress
-                                  variant="determinate"
-                                  value={Math.max(0, Math.min(100, p.progress))}
-                                  sx={{
-                                    height: 8,
-                                    borderRadius: 6,
-                                    bgcolor: '#ccecd9ff',
-                                    '& .MuiLinearProgress-bar': { backgroundColor: '#06c655' },
-                                  }}
-                                />
+                  <TableBody>
+                    {(paginated || []).map((p) => {
+                      const pid = p.id ?? p.projectId ?? p.project_id ?? '';
+
+                      const projectCode = p.project_code ?? p.code ?? '';
+                      const projectName = p.name_th ?? p.name ?? p.name_en ?? '';
+                      const projectClient = (p.customer_name ?? p.customer) || findCustomerDisplay(p.customer_id) || p.client || '';
+                      const projectStart = (p.start_date ?? p.start) || '';
+                      const projectEnd = (p.end_date ?? p.end) || '';
+
+                      /* budget/used removed from list UI */
+
+                      // status pill color
+                      const s = String(p.status || '');
+                      const statusStyles =
+                        s === 'Active'
+                          ? { color: '#08d84c', bgcolor: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.25)' }
+                          : s === 'Completed'
+                            ? { color: '#8B5CF6', bgcolor: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.25)' }
+                            : { color: '#fdca01', bgcolor: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.25)' };
+
+                      return (
+                        <TableRow
+                          key={pid || `${projectCode}-${projectName}`}
+                          hover
+                          sx={{
+                            cursor: 'pointer',
+                            '& td': {
+                              borderBottom: '1px solid rgba(2,6,23,0.06)',
+                              py: 1.4,
+                            },
+                            '&:hover td': { bgcolor: '#f8fafc' },
+                          }}
+                          onClick={() => {
+                            setSelectedProject(p);
+                            gotoTab(TAB.DASHBOARD);
+                          }}
+                        >
+                          <TableCell>
+                            <Typography sx={{ fontSize: 14, color: '#0f172a',  lineHeight: 1.2 }} noWrap>
+                              {projectName || '-'}
+                            </Typography>
+                          </TableCell>
+
+                          <TableCell>
+                            <Typography sx={{ fontSize: 14, color: '#0f172a' }} noWrap>
+                              {projectClient || '-'}
+                            </Typography>
+                          </TableCell>
+
+                          <TableCell>
+                            <Typography sx={{ fontSize: 14, color: '#334155' }} noWrap>
+                              {formatDate(projectStart)}
+                            </Typography>
+                          </TableCell>
+
+                          <TableCell>
+                            <Typography sx={{ fontSize: 14, color: '#334155' }} noWrap>
+                              {formatDate(projectEnd)}
+                            </Typography>
+                          </TableCell>
+
+                          <TableCell sx={{ textAlign: 'center', width: 180 }}>
+                            <Chip
+                              label={
+                                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: statusStyles.color }} />
+                                  <Box sx={{ fontWeight: 500, fontSize: 14 }}>{Projects.statusTh(p.status) || p.status || '-'}</Box>
+                                </Box>
+                              }
+                              variant="outlined"
+                              size="small"
+                              sx={{
+                                borderRadius: 999,
+                                borderColor: statusStyles.borderColor,
+                                bgcolor: statusStyles.bgcolor,
+                                px: 1.2,
+                                py: 0.5,
+                                '& .MuiChip-label': { padding: 0 },
+                              }}
+                            />
+                          </TableCell>
+
+                          <TableCell sx={{ width: 240, textAlign: 'center' }}>
+                            {loadingProgressMap ? (
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Box sx={{ flex: 1, maxWidth: 180 }}>
+                                  <LinearProgress
+                                    variant="indeterminate"
+                                    sx={{
+                                      height: 8,
+                                      borderRadius: 6,
+                                      bgcolor: 'rgba(2,6,23,0.06)',
+                                      '& .MuiLinearProgress-bar': { backgroundColor: '#08d84c' },
+                                    }}
+                                  />
+                                </Box>
+                                <Box sx={{ minWidth: 44, textAlign: 'right', fontSize: 14, color: '#334155' }}>—</Box>
                               </Box>
-                              <Box sx={{ minWidth: 36, textAlign: 'right', fontSize: 12 }}>{`${p.progress}%`}</Box>
-                            </Box>
-                          ) : (
-                            '-'
-                          )}
-                        </TableCell>
+                            ) : (
+                              (() => {
+                                const pct = progressMap[String(pid)] ?? 0;
+                                const safePct = Math.max(0, Math.min(100, Number.isFinite(Number(pct)) ? Number(pct) : 0));
+                                return (
+                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Box sx={{ flex: 1, maxWidth: 180 }}>
+                                      <LinearProgress
+                                        variant="determinate"
+                                        value={safePct}
+                                        sx={{
+                                          height: 8,
+                                          borderRadius: 6,
+                                          bgcolor: 'rgba(2,6,23,0.06)',
+                                          '& .MuiLinearProgress-bar': { backgroundColor: '#08d84c' },
+                                        }}
+                                      />
+                                    </Box>
+                                    <Box sx={{ minWidth: 44, textAlign: 'right', fontSize: 14, color: '#334155' }}>{`${safePct}%`}</Box>
+                                  </Box>
+                                );
+                              })()
+                            )}
+                          </TableCell>
 
-                        <TableCell sx={{ display: 'flex', justifyContent: 'center' }}>
-                          <Box sx={{ display: 'flex', gap: 1 }}>
+                          {/* งบประมาณ และ ใช้ไป ถูกลบออกจากตารางรายการตามคำขอ */}
+
+                          <TableCell sx={{ textAlign: 'right', width: 80 }}>
                             <IconButton
                               size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openEditInCreateTab(p);
-                              }}
-                              aria-label="แก้ไขโครงการ"
+                              aria-label="เมนูการทำงาน"
+                              onClick={(e) => openActionMenu(e, p)}
                             >
-                              <EditIcon fontSize="small" />
+                              <MoreHorizIcon fontSize="small" />
                             </IconButton>
-
-                            <IconButton
-                              size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                requestDelete(p);
-                              }}
-                              aria-label="ลบโครงการ"
-                              disabled={deleting}
-                            >
-                              {deleting ? <CircularProgress size={18} sx={{ color: '#d32f2f' }} /> : <DeleteIcon fontSize="small" />}
-                            </IconButton>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </TableContainer>
-          )}
 
-          {(filtered || []).length === 0 && (
-            <Box sx={{ py: 2, alignItems: 'center', display: 'flex', justifyContent: 'center' }}>
-              <Typography color="text.secondary">ยังไม่มีข้อมูลโครงการ</Typography>
-            </Box>
-          )}
-        </TabPanel>
+            <Box
+              sx={{
+                px: 2.5,
+                pb: 2,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 2,
+                borderTop: '1px solid rgba(2,6,23,0.06)',
+              }}
+            >
+              <Button
+                variant="text"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                sx={{ textTransform: 'none', fontWeight: 700, color: '#0f172a' }}
+              >
+                ย้อนกลับ
+              </Button>
 
-        <TabPanel value={tab} index={TAB.GENERAL}>
-          {tabLoading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
-              <CircularProgress sx={{ color: '#d32f2f' }} />
-            </Box>
-          ) : !selectedProject ? (
-            <Typography color="text.secondary">เลือกโครงการจากแท็บ "ข้อมูลโครงการ" เพื่อดูรายละเอียดทั่วไป</Typography>
-          ) : (
-            tabReady && (
-              <ProjectGeneralPanel
-                project={selectedProject}
-                onUpdated={(updated) => {
-                  if (!updated) return;
-                  setProjects((prev) => (prev || []).map((p) => (String(p.id) === String(updated.id) ? { ...p, ...updated } : p)));
-                  setSelectedProject((prev) => (prev && String(prev.id) === String(updated.id) ? { ...prev, ...updated } : prev));
+              <Pagination
+                count={totalPages}
+                page={safePage}
+                onChange={(_e, v) => setPage(v)}
+                color="standard"
+                shape="rounded"
+                sx={{
+                  '& .MuiPaginationItem-root': { fontWeight: 700 },
                 }}
               />
-            )
-          )}
-        </TabPanel>
 
-        <TabPanel value={tab} index={TAB.CONTRACT}>
-          {tabLoading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
-              <CircularProgress sx={{ color: '#d32f2f' }} />
+              <Button
+                variant="text"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                sx={{ textTransform: 'none', fontWeight: 700, color: '#0f172a' }}
+              >
+                ถัดไป
+              </Button>
             </Box>
-          ) : !selectedProject ? (
-            <Typography color="text.secondary">เลือกโครงการจากแท็บ "ข้อมูลโครงการ" เพื่อดูสัญญาและการเงิน</Typography>
-          ) : (
-            tabReady && <ContractsPanel projectId={selectedProject?.id} />
-          )}
+
+            <Menu
+              anchorEl={actionMenu.anchorEl}
+              open={actionMenuOpen}
+              onClose={closeActionMenu}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            >
+              <MenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const p = actionMenu.project;
+                  closeActionMenu();
+                  if (p) openEditInCreateTab(p);
+                }}
+              >
+                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                  <EditIcon fontSize="small" />
+                  แก้ไข
+                </Box>
+              </MenuItem>
+
+              <MenuItem
+                disabled={!!deletingMap[String(actionMenu?.project?.id ?? actionMenu?.project?.project_id ?? actionMenu?.project?.projectId ?? '')]}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const p = actionMenu.project;
+                  closeActionMenu();
+                  if (p) requestDelete(p);
+                }}
+              >
+                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: '#d32f2f' }}>
+                  <DeleteIcon fontSize="small" />
+                  ลบ
+                </Box>
+              </MenuItem>
+            </Menu>
+          </Box>
         </TabPanel>
 
         <TabPanel value={tab} index={TAB.WORK}>
@@ -729,18 +1146,6 @@ export default function ProjectsList(props) {
             ) : (
               <WorkstreamDetail workstream={selectedWorkstream} onBack={() => setSelectedWorkstream(null)} />
             ))
-          )}
-        </TabPanel>
-
-        <TabPanel value={tab} index={TAB.TEAM}>
-          {tabLoading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
-              <CircularProgress sx={{ color: '#d32f2f' }} />
-            </Box>
-          ) : !selectedProject ? (
-            <Typography color="text.secondary">เลือกโครงการจากแท็บ "ข้อมูลโครงการ" เพื่อดูทีมงาน</Typography>
-          ) : (
-            tabReady && <TeamPanel projectId={selectedProject?.id} />
           )}
         </TabPanel>
 
@@ -777,13 +1182,32 @@ export default function ProjectsList(props) {
             onEdit={() => {
               if (!selectedProject) return;
               openEditInCreateTab(selectedProject);
-            }}
-            onGoWork={() => {
+            }} 
+            onGoWork={(payload) => {
               if (!selectedProject) return;
+
+              const toTab = String(payload?.toTab || '').toLowerCase();
+              if (toTab === 'subwork' || toTab === 'subworks') {
+                setSelectedWorkstream(payload?.workstream || null);
+                gotoTab(TAB.SUBWORKS);
+                return;
+              }
+
               setSelectedWorkstream(null);
               gotoTab(TAB.WORK);
             }}
           />
+        </TabPanel>
+        <TabPanel value={tab} index={TAB.SUBWORKS}>
+          {tabLoading ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
+              <CircularProgress sx={{ color: '#d32f2f' }} />
+            </Box>
+          ) : !selectedProject ? (
+            <Typography color="text.secondary">เลือกโครงการจากแท็บ "ข้อมูลโครงการ" เพื่อจัดการแผนงานย่อย</Typography>
+          ) : (
+            tabReady && <ProjectSub project={selectedProject} workstream={selectedWorkstream} />
+          )}
         </TabPanel>
       </Paper>
 

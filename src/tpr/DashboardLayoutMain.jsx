@@ -16,6 +16,7 @@ import {
   Button,
   Container,
   Paper,
+  Skeleton,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -42,8 +43,6 @@ import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import MenuRoundedIcon from '@mui/icons-material/Window';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import LocalOfferRoundedIcon from '@mui/icons-material/LocalOfferRounded';
-
-// Default avatar asset
 
 // Supabase / Providers
 import { supabase } from '../lib/supabaseClient';
@@ -121,6 +120,54 @@ function NoAccess() {
   );
 }
 
+/* ================= PAGE SKELETON ================= */
+function PageSkeleton() {
+  return (
+    <>
+      <AppBar position="sticky" elevation={0} color="default" sx={{ bgcolor: '#FFFFFF', borderBottom: '1px solid rgba(15, 23, 42, 0.06)' }}>
+        <Toolbar sx={{ minHeight: 72, px: { xs: 1.5, md: 2 } }}>
+          <Stack direction="row" spacing={1.2} alignItems="center" sx={{ minWidth: 90 }}>
+            <Skeleton variant="circular" width={38} height={38} />
+          </Stack>
+
+          <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Skeleton variant="rectangular" width={90} height={36} sx={{ borderRadius: 8 }} />
+              <Skeleton variant="rectangular" width={90} height={36} sx={{ borderRadius: 8 }} />
+              <Skeleton variant="rectangular" width={90} height={36} sx={{ borderRadius: 8 }} />
+              <Skeleton variant="rectangular" width={90} height={36} sx={{ borderRadius: 8 }} />
+            </Stack>
+          </Box>
+
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', minWidth: 72 }}>
+            <Skeleton variant="circular" width={40} height={40} />
+          </Box>
+        </Toolbar>
+      </AppBar>
+
+      <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
+        <Stack spacing={2}>
+          <Skeleton variant="rectangular" height={220} sx={{ borderRadius: 2 }} />
+
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            <Skeleton variant="rectangular" width={{ md: '65%' }} height={160} sx={{ borderRadius: 2 }} />
+            <Stack spacing={2} sx={{ width: { md: '35%' } }}>
+              <Skeleton variant="rectangular" height={76} sx={{ borderRadius: 2 }} />
+              <Skeleton variant="rectangular" height={76} sx={{ borderRadius: 2 }} />
+            </Stack>
+          </Stack>
+
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            <Skeleton variant="rectangular" width={{ md: '33%' }} height={120} sx={{ borderRadius: 2 }} />
+            <Skeleton variant="rectangular" width={{ md: '33%' }} height={120} sx={{ borderRadius: 2 }} />
+            <Skeleton variant="rectangular" width={{ md: '33%' }} height={120} sx={{ borderRadius: 2 }} />
+          </Stack>
+        </Stack>
+      </Container>
+    </>
+  );
+}
+
 /* ================= PATH NORMALIZER ================= */
 function normalizePath(p) {
   const s = String(p || '');
@@ -130,11 +177,13 @@ function normalizePath(p) {
 }
 
 /* ================= PAGE RENDERER ================= */
-function PageRenderer({
-  pathname,
-  session,
-}) {
+function PageRenderer({ pathname, session, allowedPathSet }) {
   const normalized = normalizePath(pathname);
+
+  // ✅ ตรวจสิทธิ์ก่อน render (ถ้าไม่ได้ ALL)
+  if (allowedPathSet && !allowedPathSet.has(normalized)) {
+    return <NoAccess />;
+  }
 
   switch (normalized) {
     case '/company':
@@ -398,8 +447,6 @@ function AccountMenuButton() {
     };
   }, []);
 
-
-
   const handleOpen = (event) => setAnchorEl(event.currentTarget);
   const handleClose = () => setAnchorEl(null);
 
@@ -425,7 +472,6 @@ function AccountMenuButton() {
     const idx = Math.floor(Math.random() * ACTIVE_COLORS.length);
     return ACTIVE_COLORS[idx];
   }, []);
-
 
   return (
     <>
@@ -491,7 +537,7 @@ function BrandMark() {
   );
 }
 
-/* ================= MAIN APP (NO TOOLPAD) ================= */
+/* ================= MAIN APP ================= */
 function DashboardLayoutAccountSidebar(props) {
   const { window } = props; // eslint-disable-line no-unused-vars
 
@@ -539,42 +585,57 @@ function DashboardLayoutAccountSidebar(props) {
   // category: 'ALL' (CEO/Admin) | 'HR' | 'EMP' | 'NONE'
   const [roleCategory, setRoleCategory] = React.useState('NONE');
   const [rolesResolved, setRolesResolved] = React.useState(false);
+  const [rolesLoading, setRolesLoading] = React.useState(false);
+
+  const userId = session?.user?.id || null;
+  const userEmail = session?.user?.email ? String(session.user.email).trim().toLowerCase() : '';
+
+  // ✅ Resolve roles เฉพาะตอน user เปลี่ยนจริง ๆ (อิง userId)
+  const prevUserIdRef = React.useRef(null);
 
   React.useEffect(() => {
     let mounted = true;
 
     (async () => {
       try {
-        setRolesResolved(false);
-
-        const email = session?.user?.email ? String(session.user.email).trim().toLowerCase() : '';
-        if (!email) {
+        // ถ้า user เปลี่ยน (login ใหม่/สลับ user) ค่อย reset rolesResolved
+        if (prevUserIdRef.current !== userId) {
+          prevUserIdRef.current = userId;
           if (mounted) {
-            setRoleCategory('NONE');
-            setRolesResolved(true);
+            setRolesResolved(false);
+            setRolesLoading(true);
           }
+        } else {
+          if (mounted) setRolesLoading(true);
+        }
+
+        if (!userId || !userEmail) {
+          if (!mounted) return;
+          setRoleCategory('NONE');
+          setRolesResolved(true);
+          setRolesLoading(false);
           return;
         }
 
         const { data: bindings, error: bindErr } = await supabase
           .from('tpr_user_role_bindings')
           .select('role_id, email')
-          .eq('email', email);
+          .eq('email', userEmail);
 
         if (bindErr) {
-          if (mounted) {
-            setRoleCategory('NONE');
-            setRolesResolved(true);
-          }
+          if (!mounted) return;
+          setRoleCategory('NONE');
+          setRolesResolved(true);
+          setRolesLoading(false);
           return;
         }
 
         const roleIds = (bindings || []).map((b) => b.role_id).filter(Boolean);
         if (roleIds.length === 0) {
-          if (mounted) {
-            setRoleCategory('NONE');
-            setRolesResolved(true);
-          }
+          if (!mounted) return;
+          setRoleCategory('NONE');
+          setRolesResolved(true);
+          setRolesLoading(false);
           return;
         }
 
@@ -584,10 +645,10 @@ function DashboardLayoutAccountSidebar(props) {
           .in('id', roleIds);
 
         if (rolesErr) {
-          if (mounted) {
-            setRoleCategory('NONE');
-            setRolesResolved(true);
-          }
+          if (!mounted) return;
+          setRoleCategory('NONE');
+          setRolesResolved(true);
+          setRolesLoading(false);
           return;
         }
 
@@ -617,55 +678,52 @@ function DashboardLayoutAccountSidebar(props) {
         else if (isEmployee) category = 'EMP';
         else category = 'NONE';
 
-        // ✅ Allowed paths by category (ตามที่ขอ)
-        // - CEO/Admin: all menus (allowedPathSet = null => bypass checks)
-        // - HR: Home + Leave/OT + Settings
-        // - Employee: Home + Time Logging
-        let allowed = null;
-        if (category === 'HR') {
-          allowed = new Set(['/attendance', '/leave-ot-summary', '/settings']);
-        } else if (category === 'EMP') {
-          allowed = new Set(['/attendance', '/time-logging']);
-        } else if (category === 'NONE') {
-          allowed = new Set(['/attendance']);
-        } else {
-          allowed = null; // ALL
-        }
-
-        if (mounted) {
-          setRoleCategory(category);
-          setRolesResolved(true);
-
-          // ✅ If user currently on a page that is not allowed, push back to /attendance
-          const current = normalizePath(pathname);
-          if (category !== 'ALL' && allowed && !allowed.has(current)) {
-            setPathname('/attendance');
-          }
-        }
+        if (!mounted) return;
+        setRoleCategory(category);
+        setRolesResolved(true);
+        setRolesLoading(false);
       } catch (err) {
         console.error('Role access error', err);
-        if (mounted) {
-          setRoleCategory('NONE');
-          setRolesResolved(true);
-          if (normalizePath(pathname) !== '/attendance') setPathname('/attendance');
-        }
+        if (!mounted) return;
+        setRoleCategory('NONE');
+        setRolesResolved(true);
+        setRolesLoading(false);
       }
     })();
 
     return () => {
       mounted = false;
     };
-    // include pathname so we can bounce user if they are on forbidden page
-  }, [session, pathname]);
+  }, [userId, userEmail]);
+
+  // ✅ Allowed paths by roleCategory
+  const allowedPathSetForRenderer = React.useMemo(() => {
+    if (!rolesResolved) return new Set(['/attendance']);
+    if (roleCategory === 'ALL') return null;
+    if (roleCategory === 'HR') return new Set(['/attendance', '/leave-ot-summary', '/settings']);
+    if (roleCategory === 'EMP') return new Set(['/attendance', '/time-logging']);
+    return new Set(['/attendance']);
+  }, [roleCategory, rolesResolved]);
+
+  // ✅ ถ้าหน้าปัจจุบันไม่อยู่ในสิทธิ์ → เด้งกลับ /attendance (ไม่ต้อง reload role)
+  React.useEffect(() => {
+    if (!rolesResolved) return;
+    const current = normalizePath(pathname);
+    const allowed = allowedPathSetForRenderer;
+    if (allowed && !allowed.has(current)) {
+      setPathname('/attendance');
+    }
+  }, [pathname, rolesResolved, allowedPathSetForRenderer]);
 
   const baseTopNavItems = React.useMemo(
     () => [
       { title: 'หน้าแรก', path: '/attendance', disabled: false, icon: <HomeRoundedIcon /> },
       { title: 'โครงการ', path: '/projects', disabled: false, icon: <WorkspacesRoundedIcon /> },
-      { title: 'งานโครงการ', path: '/planning', disabled: false, icon: <AccountTreeRoundedIcon /> },
+      // Hidden for now: planning and manager menu
+      // { title: 'งานโครงการ', path: '/planning', disabled: false, icon: <AccountTreeRoundedIcon /> },
       { title: 'ติดตามงาน', path: '/task-tracking', disabled: false, icon: <TrackChangesRoundedIcon /> },
       { title: 'บันทึกเวลา', path: '/time-logging', disabled: false, icon: <AccessTimeRoundedIcon /> },
-      { title: 'ผู้จัดการ', path: '/manager-overview', disabled: false, icon: <SupervisorAccountRoundedIcon /> },
+      // { title: 'ผู้จัดการ', path: '/manager-overview', disabled: false, icon: <SupervisorAccountRoundedIcon /> },
       { title: 'โอกาสทางการขาย', path: '/sales-opportunities', disabled: false, icon: <LocalOfferRoundedIcon /> },
       { title: 'ลา & โอที', path: '/leave-ot-summary', disabled: false, icon: <EventNoteRoundedIcon /> },
       { title: 'สรุปการเงิน', path: '/finance-summary', disabled: false, icon: <PaymentsRoundedIcon /> },
@@ -674,10 +732,10 @@ function DashboardLayoutAccountSidebar(props) {
     [],
   );
 
-  // ✅ filter menu by roleCategory (exactly as requested)
+  // ✅ filter menu by roleCategory
   const topNavItems = React.useMemo(() => {
     if (!rolesResolved) {
-      // ระหว่างโหลดสิทธิ์ ให้เห็นแค่หน้าแรกก่อน (กันกระพริบเมนู)
+      // ระหว่างโหลดสิทธิ์ ให้เห็นแค่หน้าแรกก่อน
       return baseTopNavItems.filter((i) => i.path === '/attendance');
     }
 
@@ -693,7 +751,6 @@ function DashboardLayoutAccountSidebar(props) {
       return baseTopNavItems.filter((i) => allowed.has(i.path));
     }
 
-    // NONE
     return baseTopNavItems.filter((i) => i.path === '/attendance');
   }, [baseTopNavItems, roleCategory, rolesResolved]);
 
@@ -709,16 +766,19 @@ function DashboardLayoutAccountSidebar(props) {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
 
-  // ✅ For PageRenderer access check:
-  // - ALL => allowedPathSetForRenderer = null (bypass)
-  // - others => use allowedPathSet
-  const allowedPathSetForRenderer = React.useMemo(() => {
-    if (!rolesResolved) return new Set(['/attendance']);
-    if (roleCategory === 'ALL') return null;
-    if (roleCategory === 'HR') return new Set(['/attendance', '/leave-ot-summary', '/settings']);
-    if (roleCategory === 'EMP') return new Set(['/attendance', '/time-logging']);
-    return new Set(['/attendance']);
-  }, [roleCategory, rolesResolved]);
+  /**
+   * ✅ Fix หลัก: Skeleton แสดง “ครั้งแรกเท่านั้น”
+   * - ป้องกัน unmount/mount หน้า (เช่น ProjectsList) ตอน token refresh / onAuthStateChange
+   */
+  const firstLoadDoneRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (authChecked && rolesResolved) {
+      firstLoadDoneRef.current = true;
+    }
+  }, [authChecked, rolesResolved]);
+
+  const showInitialSkeleton = !firstLoadDoneRef.current && (!authChecked || !rolesResolved);
 
   return (
     <ThemeProvider theme={appTheme}>
@@ -737,70 +797,77 @@ function DashboardLayoutAccountSidebar(props) {
         <NotifyProvider onApi={(api) => setNotifyApi(api)}>
           <LoadingProvider onApi={(api) => setLoadingApi(api)}>
             <Box sx={{ minHeight: '100vh', bgcolor: '#FFFFFF' }}>
-              <AppBar
-                position="sticky"
-                elevation={0}
-                color="default"
-                sx={{
-                  bgcolor: '#FFFFFF',
-                  borderBottom: '1px solid rgba(15, 23, 42, 0.06)',
-                }}
-              >
-                <Toolbar sx={{ minHeight: 72, px: { xs: 1.5, md: 2 } }}>
-                  {/* Brand (ซ้าย) */}
-                  <Stack direction="row" spacing={1.2} alignItems="center" sx={{ minWidth: 90 }}>
-                    <BrandMark />
-                  </Stack>
+              {showInitialSkeleton ? (
+                <PageSkeleton />
+              ) : (
+                <>
+                  <AppBar
+                    position="sticky"
+                    elevation={0}
+                    color="default"
+                    sx={{
+                      bgcolor: '#FFFFFF',
+                      borderBottom: '1px solid rgba(15, 23, 42, 0.06)',
+                    }}
+                  >
+                    <Toolbar sx={{ minHeight: 72, px: { xs: 1.5, md: 2 } }}>
+                      {/* Brand (ซ้าย) */}
+                      <Stack direction="row" spacing={1.2} alignItems="center" sx={{ minWidth: 90 }}>
+                        <BrandMark />
+                      </Stack>
 
-                  {/* Center: Desktop = TopNav | Mobile = Hamburger */}
-                  <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-                    {!isMobile ? (
-                      <TopNav
-                        items={topNavItems}
-                        activePath={pathname}
-                        onNavigate={handleNavigate}
-                        activeColorMap={activeColorMap}
-                      />
-                    ) : (
-                      <IconButton
-                        onClick={() => setMobileNavOpen(true)}
-                        sx={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 999,
-                          bgcolor: 'rgba(15, 23, 42, 0.04)',
-                          '&:hover': { bgcolor: 'rgba(15, 23, 42, 0.07)' },
-                        }}
-                      >
-                        <MenuRoundedIcon sx={{ color: '#000' }} />
-                      </IconButton>
-                    )}
-                  </Box>
+                      {/* Center: Desktop = TopNav | Mobile = Hamburger */}
+                      <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+                        {!isMobile ? (
+                          <TopNav
+                            items={topNavItems}
+                            activePath={pathname}
+                            onNavigate={handleNavigate}
+                            activeColorMap={activeColorMap}
+                            disabled={rolesLoading}
+                          />
+                        ) : (
+                          <IconButton
+                            onClick={() => setMobileNavOpen(true)}
+                            sx={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 999,
+                              bgcolor: 'rgba(15, 23, 42, 0.04)',
+                              '&:hover': { bgcolor: 'rgba(15, 23, 42, 0.07)' },
+                            }}
+                          >
+                            <MenuRoundedIcon sx={{ color: '#000' }} />
+                          </IconButton>
+                        )}
+                      </Box>
 
-                  {/* Account (ขวา) */}
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', minWidth: 72 }}>
-                    <AccountMenuButton />
-                  </Box>
-                </Toolbar>
-              </AppBar>
+                      {/* Account (ขวา) */}
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', minWidth: 72 }}>
+                        <AccountMenuButton />
+                      </Box>
+                    </Toolbar>
+                  </AppBar>
 
-              {/* Mobile menu dialog */}
-              <MobileNavDialog
-                open={mobileNavOpen}
-                onClose={() => setMobileNavOpen(false)}
-                items={topNavItems}
-                activePath={pathname}
-                onNavigate={handleNavigate}
-                activeColorMap={activeColorMap}
-              />
+                  {/* Mobile menu dialog */}
+                  <MobileNavDialog
+                    open={mobileNavOpen}
+                    onClose={() => setMobileNavOpen(false)}
+                    items={topNavItems}
+                    activePath={pathname}
+                    onNavigate={handleNavigate}
+                    activeColorMap={activeColorMap}
+                  />
 
-              <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
-                <PageRenderer
-                  pathname={pathname}
-                  allowedPathSet={allowedPathSetForRenderer}
-                  session={session}
-                />
-              </Container>
+                  <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
+                    <PageRenderer
+                      pathname={pathname}
+                      allowedPathSet={allowedPathSetForRenderer}
+                      session={session}
+                    />
+                  </Container>
+                </>
+              )}
             </Box>
           </LoadingProvider>
         </NotifyProvider>

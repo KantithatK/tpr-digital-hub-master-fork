@@ -26,6 +26,9 @@ import RadioGroup from '@mui/material/RadioGroup';
 import Radio from '@mui/material/Radio';
 import FormControlLabel from '@mui/material/FormControlLabel';
 
+import Skeleton from '@mui/material/Skeleton';
+import Divider from '@mui/material/Divider';
+
 import CloseIcon from '@mui/icons-material/Close';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
@@ -100,15 +103,7 @@ function createBpRadio(color) {
   });
 
   function BpRadio(props) {
-    return (
-      <Radio
-        disableRipple
-        color="default"
-        checkedIcon={<BpCheckedIcon />}
-        icon={<BpIcon />}
-        {...props}
-      />
-    );
+    return <Radio disableRipple color="default" checkedIcon={<BpCheckedIcon />} icon={<BpIcon />} {...props} />;
   }
 
   return BpRadio;
@@ -132,12 +127,25 @@ function pickTeamIdsFromForm(form) {
     const v = form?.[k];
     if (Array.isArray(v) && v.length) return v;
   }
-  // ถ้ามี array แต่เป็น [] ให้คืน [] แทน
   for (const k of keys) {
     const v = form?.[k];
     if (Array.isArray(v)) return v;
   }
   return [];
+}
+
+function safeBool(v) {
+  return !!v;
+}
+
+async function getActorIdFromSupabase(supabase) {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) return null;
+    return data?.user?.id || null;
+  } catch {
+    return null;
+  }
 }
 
 export default function CreateProjectTab(props) {
@@ -161,6 +169,11 @@ export default function CreateProjectTab(props) {
   dayjs.locale('th');
 
   const isEdit = !!dialogForm?.id;
+
+  // ===== page loading state (skeleton) =====
+  const hasEmployees = Array.isArray(employees);
+  const hasCustomers = Array.isArray(customers);
+  const pageLoading = !hasEmployees || !hasCustomers;
 
   // ===== dialogs state =====
   const [customerDialogOpen, setCustomerDialogOpen] = React.useState(false);
@@ -267,8 +280,6 @@ export default function CreateProjectTab(props) {
   };
 
   // ===== Display helpers =====
-
-  // ✅ Project Admin display (แก้ปัญหา edit แล้วไม่โชว์)
   const projectAdminId = dialogForm?.project_admin_id || dialogForm?.principal_id || null;
   const projectAdminDisplay = React.useMemo(() => {
     const fromText = String(dialogForm?.projectAdmin || '').trim();
@@ -289,7 +300,6 @@ export default function CreateProjectTab(props) {
           })()
         : `เลือกแล้ว ${pmCount} คน`;
 
-  // ✅ team display (แก้ปัญหา edit แล้วไม่โชว์)
   const effectiveTeamIds = teamSelection || [];
   const teamCount = (effectiveTeamIds || []).length;
   const teamDisplay =
@@ -332,33 +342,34 @@ export default function CreateProjectTab(props) {
   }, [customers, customerSearch]);
 
   const handleSaveClick = async () => {
-    // ✅ edit: ใช้ code เดิมเป็นหลัก / create: gen code
-    const safeCode = (dialogForm.code || dialogForm.project_code || '').trim() || generateProjectCode();
-    if (!dialogForm.code) handleDialogChange('code', safeCode);
+    if (!supabase) return notify.error('ไม่พบ supabase client (props.supabase)');
 
+    // ✅ edit: ใช้ code เดิมเป็นหลัก / create: gen code
+    const safeCode = (dialogForm?.code || dialogForm?.project_code || '').trim() || generateProjectCode();
+    if (!dialogForm?.code) handleDialogChange('code', safeCode);
+
+    // ✅ sync selections to form state (source of truth)
     const syncedPm =
-      Array.isArray(dialogForm.project_manager_ids) && dialogForm.project_manager_ids.length
+      Array.isArray(dialogForm?.project_manager_ids) && dialogForm.project_manager_ids.length
         ? dialogForm.project_manager_ids
         : (pmSelection || []);
-    handleDialogChange('project_manager_ids', Array.isArray(syncedPm) ? syncedPm : []);
-
-    // ✅ ใช้ teamSelection เป็น source of truth ของหน้าจอนี้ (แก้ปัญหา edit แล้วค่าไม่ขึ้น)
     const syncedTeam = Array.isArray(teamSelection) ? teamSelection : [];
+
+    handleDialogChange('project_manager_ids', Array.isArray(syncedPm) ? syncedPm : []);
     handleDialogChange('initial_team_ids', syncedTeam);
 
-    // ✅ validate
+    // ✅ local validate (ไวๆ)
     const localErrors = {};
-    if (!String(dialogForm.name || '').trim()) localErrors.name = 'กรุณากรอกชื่อโครงการ';
-    if (!dialogForm.customer_id) localErrors.customer_id = 'กรุณาเลือกลูกค้า';
-    if (!dialogForm.project_admin_id && !dialogForm.principal_id) localErrors.project_admin_id = 'กรุณาเลือก Project Admin';
+    if (!String(dialogForm?.name || '').trim()) localErrors.name = 'กรุณากรอกชื่อโครงการ';
+    if (!dialogForm?.customer_id) localErrors.customer_id = 'กรุณาเลือกลูกค้า';
+    if (!dialogForm?.project_admin_id && !dialogForm?.principal_id) localErrors.project_admin_id = 'กรุณาเลือก Project Admin';
     if (!Array.isArray(syncedPm) || syncedPm.length < 1) localErrors.project_manager_ids = 'กรุณาเลือก Project Manager อย่างน้อย 1 คน';
 
-    const budgetNum = Number(String(dialogForm.budget ?? '').replace(/,/g, ''));
+    const budgetNum = Number(String(dialogForm?.budget ?? '').replace(/,/g, ''));
     if (!Number.isFinite(budgetNum) || budgetNum <= 0) localErrors.budget = 'กรุณากรอกงบประมาณให้ถูกต้อง';
 
-    if (!String(dialogForm.start || '').trim()) localErrors.start = 'กรุณาเลือกวันที่เริ่มโครงการ';
+    if (!String(dialogForm?.start || '').trim()) localErrors.start = 'กรุณาเลือกวันที่เริ่มโครงการ';
 
-    // ✅ create เท่านั้นที่บังคับทีมเริ่มต้น
     if (!isEdit) {
       if (!Array.isArray(syncedTeam) || syncedTeam.length < 1) localErrors.initial_team_ids = 'กรุณาเลือกสมาชิกในโครงการอย่างน้อย 1 คน';
     }
@@ -368,74 +379,56 @@ export default function CreateProjectTab(props) {
       return;
     }
 
-    const toValidate = {
+    const actorId = await getActorIdFromSupabase(supabase);
+
+    // ✅ ใช้ helper Projects เป็นหลัก (กันชน schema / manager_id)
+    const formForSave = {
       ...dialogForm,
-      id: dialogForm.id || null,
+      id: dialogForm?.id || null,
       code: safeCode,
-      project_manager_ids: syncedPm,
-      initial_team_ids: syncedTeam,
-      project_admin_id: dialogForm.project_admin_id || dialogForm.principal_id || null,
+      name: dialogForm?.name || '',
+      name_en: dialogForm?.name_en || '',
+      description: dialogForm?.description || '',
+
+      start: dialogForm?.start || '',
+      end: dialogForm?.end || '',
+
+      contract_type: dialogForm?.contract_type || 'Fixed Fee',
+      project_type: dialogForm?.project_type || (dialogForm?.contract_type || 'Fixed Fee'),
+
+      budget: dialogForm?.budget ?? '',
+
+      customer_id: dialogForm?.customer_id || null,
+      customer_code: dialogForm?.customer_code || '',
+      customer_name: dialogForm?.customer_name || dialogForm?.client || '',
+
+      project_admin_id: dialogForm?.project_admin_id || dialogForm?.principal_id || null,
+
+      project_manager_ids: Array.isArray(syncedPm) ? syncedPm : [],
+      initial_team_ids: Array.isArray(syncedTeam) ? syncedTeam : [],
+
+      parent_project_id: dialogForm?.parent_project_id ?? 'MAIN',
+      status: dialogForm?.status || 'Planning',
+
       __mode: isEdit ? 'update' : 'create',
     };
 
-    const v = Projects?.validateCreateForm ? Projects.validateCreateForm(toValidate) : { ok: true, errors: {} };
+    const v = Projects?.validateCreateForm ? Projects.validateCreateForm(formForSave) : { ok: true, errors: {}, normalized: formForSave };
     if (v && v.ok === false) {
       notifyFirstError(v.errors || {}, 'กรุณาตรวจสอบข้อมูลก่อนบันทึก');
       return;
     }
 
-    if (!supabase) return notify.error('ไม่พบ supabase client (props.supabase)');
-
     setSaving(true);
     try {
-      const contractType = dialogForm.contract_type || 'Fixed Fee';
-      const projectAdminId2 = dialogForm.project_admin_id || dialogForm.principal_id || null;
+      const dbPayload = isEdit ? Projects.toDbUpdate(v.normalized || formForSave) : Projects.toDbInsert(v.normalized || formForSave);
 
-      const payload = {
-        project_code: safeCode,
-        name_th: dialogForm.name || '',
-        name_en: dialogForm.name_en || '',
-        description: dialogForm.description || null,
-
-        customer_id: dialogForm.customer_id || null,
-        customer_code: dialogForm.customer_code || '',
-        customer_name: dialogForm.customer_name || dialogForm.client || '',
-
-        start_date: dialogForm.start || null,
-        end_date: dialogForm.end || null,
-
-        project_admin_id: projectAdminId2,
-        principal_id: projectAdminId2,
-
-        project_manager_ids: Array.isArray(syncedPm) ? syncedPm : [],
-        manager_ids: Array.isArray(syncedPm) ? syncedPm : [],
-
-        parent_project_id: dialogForm.parent_project_id === 'MAIN' ? null : (dialogForm.parent_project_id || null),
-
-        contract_type: contractType,
-        project_type: dialogForm.project_type || contractType,
-
-        budget: Number(String(dialogForm.budget ?? '').replace(/,/g, '')) || 0,
-        status: dialogForm.status || 'Planning',
-
-        tags: dialogForm.tags || null,
-        archived: !!dialogForm.archived,
-      };
-
-      // ===== ✅ create / update =====
       let saved = null;
-      if (isEdit) {
-        const id = dialogForm.id;
-        const { data, error } = await supabase
-          .from('tpr_projects')
-          .update(payload)
-          .eq('id', id)
-          .select()
-          .single();
-        if (error) throw error;
-        saved = data;
 
-        // ถ้ามี flow update ทีมในตารางอื่น ให้ไปทำใน helper นี้ได้
+      if (isEdit) {
+        saved = await Projects.update(supabase, formForSave.id, dbPayload);
+
+        // optional post-update hook (ไม่บังคับ)
         try {
           if (Projects && typeof Projects.afterUpdateProject === 'function') {
             await Projects.afterUpdateProject({
@@ -443,36 +436,45 @@ export default function CreateProjectTab(props) {
               project: saved,
               initial_team_ids: syncedTeam,
               project_manager_ids: syncedPm,
-              project_admin_id: payload.project_admin_id,
+              project_admin_id: dbPayload.project_admin_id,
+              actor: actorId,
             });
           }
         } catch (postErr) {
           console.warn('afterUpdateProject failed (ignored):', postErr);
         }
-      } else {
-        const { data, error } = await supabase.from('tpr_projects').insert([payload]).select().single();
-        if (error) throw error;
-        saved = data;
 
-        // ✅ create เท่านั้น: สร้างทีมเริ่มต้น / งานหลังสร้าง
-        try {
-          if (Projects && typeof Projects.afterCreateProject === 'function') {
-            await Projects.afterCreateProject({
-              supabase,
-              project: saved,
-              initial_team_ids: syncedTeam,
-              project_manager_ids: syncedPm,
-              project_admin_id: payload.project_admin_id,
-            });
-          } else if (Projects && typeof Projects.createInitialTeam === 'function') {
-            await Projects.createInitialTeam({ supabase, projectId: saved?.id, teamIds: syncedTeam });
-          }
-        } catch (postErr) {
-          console.warn('afterCreateProject/createInitialTeam failed (ignored):', postErr);
-        }
+        notify.success('บันทึกการเปลี่ยนแปลงเรียบร้อย');
+        if (typeof onCreated === 'function') onCreated(saved);
+        return;
       }
 
-      notify.success(isEdit ? 'บันทึกการเปลี่ยนแปลงเรียบร้อย' : 'บันทึกข้อมูลเรียบร้อย');
+      // ===== create =====
+      saved = await Projects.create(supabase, dbPayload);
+
+      // ✅ บังคับให้ทำงานหลังสร้าง (รวม auto workstream) ถ้าพังให้ถือว่าสร้างไม่สำเร็จ
+      try {
+        if (Projects && typeof Projects.afterCreateProject === 'function') {
+          await Projects.afterCreateProject({
+            supabase,
+            project: saved,
+            initial_team_ids: syncedTeam,
+            project_manager_ids: syncedPm,
+            project_admin_id: dbPayload.project_admin_id,
+            actor: actorId,
+          });
+        }
+      } catch (postErr) {
+        // best-effort rollback: ลบโปรเจคที่เพิ่งสร้าง (ถ้าสิทธิ์อนุญาต)
+        try {
+          await supabase.from('tpr_projects').delete().eq('id', saved?.id);
+        } catch (rbErr) {
+          console.warn('rollback delete project failed:', rbErr);
+        }
+        throw new Error(`สร้าง Workstream อัตโนมัติไม่สำเร็จ: ${postErr?.message || 'UNKNOWN_ERROR'}`);
+      }
+
+      notify.success('บันทึกข้อมูลเรียบร้อย');
       if (typeof onCreated === 'function') onCreated(saved);
     } catch (err) {
       console.error('Failed to save project', err);
@@ -482,7 +484,79 @@ export default function CreateProjectTab(props) {
     }
   };
 
-  const contractValue = dialogForm.contract_type || 'Fixed Fee';
+  const contractValue = dialogForm?.contract_type || 'Fixed Fee';
+
+  // ===== Skeleton UI =====
+  const SkeletonPage = (
+    <Box sx={{ maxWidth: 980, width: '100%', mx: 'auto', ...pageSx }}>
+      <Box sx={{ mb: 2 }}>
+        <Skeleton variant="text" width={220} height={38} />
+        <Skeleton variant="text" width={420} height={20} />
+      </Box>
+
+      <Paper
+        elevation={0}
+        sx={{
+          border: '1px solid',
+          borderColor: 'divider',
+          overflow: 'hidden',
+          bgcolor: 'background.paper',
+        }}
+      >
+        <Box sx={{ p: 2 }}>
+          <Skeleton variant="text" width={160} height={22} />
+          <Box sx={{ mt: 1.5, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+            <Skeleton variant="rounded" height={40} />
+            <Skeleton variant="rounded" height={40} />
+          </Box>
+
+          <Box sx={{ mt: 2 }}>
+            <Skeleton variant="text" width={140} height={22} />
+            <Box sx={{ mt: 1, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <Skeleton variant="rounded" width={110} height={34} />
+              <Skeleton variant="rounded" width={90} height={34} />
+              <Skeleton variant="rounded" width={110} height={34} />
+              <Skeleton variant="rounded" width={100} height={34} />
+            </Box>
+          </Box>
+        </Box>
+
+        <Divider />
+
+        <Box sx={{ p: 2 }}>
+          <Skeleton variant="text" width={140} height={22} />
+          <Box sx={{ mt: 1.5, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+            <Skeleton variant="rounded" height={40} />
+            <Skeleton variant="rounded" height={40} />
+          </Box>
+        </Box>
+
+        <Divider />
+
+        <Box sx={{ p: 2 }}>
+          <Skeleton variant="text" width={120} height={22} />
+          <Box sx={{ mt: 1.5, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+            <Skeleton variant="rounded" height={40} />
+            <Skeleton variant="rounded" height={40} />
+          </Box>
+        </Box>
+
+        <Divider />
+
+        <Box sx={{ p: 2 }}>
+          <Skeleton variant="text" width={160} height={22} />
+          <Skeleton variant="rounded" height={40} sx={{ mt: 1 }} />
+        </Box>
+
+        <Box sx={{ p: 2, display: 'flex', justifyContent: 'flex-end', gap: 1, bgcolor: 'background.default' }}>
+          <Skeleton variant="rounded" width={90} height={34} />
+          <Skeleton variant="rounded" width={140} height={34} />
+        </Box>
+      </Paper>
+    </Box>
+  );
+
+  if (pageLoading) return SkeletonPage;
 
   return (
     <Box sx={{ maxWidth: 980, width: '100%', mx: 'auto', ...pageSx }}>
@@ -512,19 +586,15 @@ export default function CreateProjectTab(props) {
               label="ชื่อโครงการ *"
               size="small"
               fullWidth
-              value={dialogForm.name || ''}
+              value={dialogForm?.name || ''}
               onChange={(e) => handleDialogChange('name', e.target.value)}
-              error={false}
-              helperText=""
             />
 
             <TextField
               label="ลูกค้า *"
               size="small"
               fullWidth
-              value={dialogForm.client || ''}
-              error={false}
-              helperText=""
+              value={dialogForm?.client || ''}
               InputProps={{
                 readOnly: true,
                 endAdornment: (
@@ -597,8 +667,6 @@ export default function CreateProjectTab(props) {
               size="small"
               fullWidth
               value={projectAdminDisplay}
-              error={false}
-              helperText=""
               InputProps={{
                 readOnly: true,
                 endAdornment: (
@@ -624,8 +692,6 @@ export default function CreateProjectTab(props) {
               size="small"
               fullWidth
               value={pmDisplay}
-              error={false}
-              helperText=""
               InputProps={{
                 readOnly: true,
                 endAdornment: (
@@ -656,24 +722,20 @@ export default function CreateProjectTab(props) {
               size="small"
               fullWidth
               type="number"
-              value={dialogForm.budget || ''}
+              value={dialogForm?.budget || ''}
               onChange={(e) => handleDialogChange('budget', e.target.value)}
               inputProps={{ step: '0.01', min: 0 }}
-              error={false}
-              helperText=""
             />
 
             <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="th">
               <DatePicker
-                value={dialogForm.start ? dayjs(dialogForm.start) : null}
+                value={dialogForm?.start ? dayjs(dialogForm.start) : null}
                 onChange={(v) => handleDialogChange('start', v ? v.format('YYYY-MM-DD') : '')}
                 slotProps={{
                   textField: {
                     label: 'วันที่เริ่มโครงการ *',
                     size: 'small',
                     fullWidth: true,
-                    error: false,
-                    helperText: '',
                   },
                 }}
               />
@@ -689,8 +751,6 @@ export default function CreateProjectTab(props) {
             fullWidth
             value={teamDisplay}
             label="สมาชิกในโครงการ *"
-            error={false}
-            helperText=""
             InputProps={{
               readOnly: true,
               endAdornment: (
@@ -720,7 +780,7 @@ export default function CreateProjectTab(props) {
             disableElevation
             variant="contained"
             onClick={handleSaveClick}
-            disabled={!!dialogSaving}
+            disabled={safeBool(dialogSaving)}
             startIcon={isEdit ? <CheckCircleIcon /> : <AddCircleIcon />}
             sx={{
               borderRadius: 1,
@@ -730,7 +790,7 @@ export default function CreateProjectTab(props) {
               '&.Mui-disabled': { bgcolor: 'rgba(255,64,89,0.35)', color: 'rgba(255,255,255,0.9)' },
             }}
           >
-            {dialogSaving ? 'บันทึก...' : (isEdit ? 'บันทึก' : 'สร้างโครงการ')}
+            {dialogSaving ? 'บันทึก...' : isEdit ? 'บันทึก' : 'สร้างโครงการ'}
           </Button>
         </Box>
       </Paper>
@@ -762,7 +822,7 @@ export default function CreateProjectTab(props) {
           />
 
           <List sx={{ mt: 0.5, maxHeight: 420, overflow: 'auto' }}>
-            {filteredCustomers.map((c) => (
+            {(filteredCustomers || []).map((c) => (
               <ListItemButton
                 key={c.id}
                 onClick={() => {
@@ -904,7 +964,6 @@ export default function CreateProjectTab(props) {
             onClick={() => {
               const list = pmSelection || [];
               handleDialogChange('project_manager_ids', list);
-              handleDialogChange('manager_ids', list);
               const firstEmp = (employees || []).find((e) => String(e.id) === String(list[0]));
               handleDialogChange('manager', firstEmp ? formatEmployee(firstEmp) : '');
               setPmDialogOpen(false);
@@ -974,7 +1033,6 @@ export default function CreateProjectTab(props) {
             variant="contained"
             startIcon={<CheckCircleIcon />}
             onClick={() => {
-              // ✅ เขียนกลับ form เพื่อให้จุดอื่นอ่านได้ และให้ save ใช้ทันที
               handleDialogChange('initial_team_ids', teamSelection || []);
               setTeamDialogOpen(false);
             }}
