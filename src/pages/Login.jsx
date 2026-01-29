@@ -301,9 +301,11 @@ export default function Login() {
     notify.info("กำลังส่งอีเมลรีเซ็ตรหัสผ่าน...");
     setResetLoading(true);
 
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
     const { error } = await supabase.auth.resetPasswordForEmail(emailTrim, {
-      redirectTo: "http://localhost:5173/reset-password",
+      redirectTo: `${origin}/reset-password`,
     });
+
 
     setResetLoading(false);
 
