@@ -25,7 +25,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useNotify } from "@/tpr/contexts/notifyContext";
 
 // ✅ ภาพและอีโมจิเดียวกับหน้า Login (ตามฐานล่าสุด)
-import heroImg from "@/assets/login-page.png";
+import heroImg from "@/assets/auth-img.webp";
 import smile from "@/assets/emoji-smile.gif";
 
 function normalizeEmail(v) {

@@ -19,7 +19,7 @@ import { supabase } from "@/lib/supabaseClient";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
 // ✅ ใช้ layout/asset เดียวกับหน้า Login ล่าสุด
-import heroImg from "@/assets/login-page.png";
+import heroImg from "@/assets/auth-img.webp";
 import smile from "@/assets/emoji-smile.gif";
 
 export default function ResetPassword() {

@@ -26,7 +26,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useNotify } from "@/tpr/contexts/notifyContext";
 
 // ✅ ภาพฝั่งซ้าย
-import heroImg from "@/assets/login-page.png";
+import heroImg from "@/assets/auth-img.webp";
 import smile from "@/assets/emoji-smile.gif";
 
 function normalizeEmail(v) {
