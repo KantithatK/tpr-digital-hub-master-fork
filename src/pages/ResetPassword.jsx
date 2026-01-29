@@ -8,8 +8,6 @@ import {
   Typography,
   Stack,
   Skeleton,
-  Snackbar,
-  Alert,
   Paper,
   CircularProgress,
   Divider,
@@ -18,6 +16,9 @@ import {
 } from "@mui/material";
 import { supabase } from "@/lib/supabaseClient";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+
+// ✅ ใช้ popup แจ้งเตือนแบบเดียวกับหน้า Login
+import { useNotify } from "@/tpr/contexts/notifyContext";
 
 // ✅ ใช้ layout/asset เดียวกับหน้า Login ล่าสุด
 import heroImg from "@/assets/auth-img.webp";
@@ -94,13 +95,10 @@ export default function ResetPassword() {
   const isSmall = useMediaQuery(theme.breakpoints.down("sm"));
   const isMdDown = useMediaQuery(theme.breakpoints.down("md"));
 
+  const notify = useNotify();
+
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: "",
-    severity: "info",
-  });
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
 
@@ -137,14 +135,15 @@ export default function ResetPassword() {
     return <ResetPasswordSkeleton isMdDown={isMdDown} isSmall={isSmall} />;
   }
 
-  // ✅ logic เดิม (ห้ามยุ่ง)
+  // ✅ logic เดิม (ห้ามยุ่ง) — เปลี่ยนเฉพาะการแจ้งเตือน
   const handleReset = async (e) => {
     e.preventDefault();
+
     if (!password || !confirm) {
-      return setSnackbar({ open: true, message: "กรุณากรอกรหัสผ่านให้ครบ", severity: "error" });
+      return notify.warning("กรุณากรอกรหัสผ่านให้ครบ");
     }
     if (password !== confirm) {
-      return setSnackbar({ open: true, message: "รหัสผ่านไม่ตรงกัน", severity: "error" });
+      return notify.warning("รหัสผ่านไม่ตรงกัน");
     }
 
     setLoading(true);
@@ -152,10 +151,10 @@ export default function ResetPassword() {
     setLoading(false);
 
     if (error) {
-      return setSnackbar({ open: true, message: error.message, severity: "error" });
+      return notify.error(error.message || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
     }
 
-    setSnackbar({ open: true, message: "เปลี่ยนรหัสผ่านเรียบร้อย", severity: "success" });
+    notify.success("เปลี่ยนรหัสผ่านเรียบร้อย");
     setTimeout(() => navigate("/login"), 1200);
   };
 
@@ -339,17 +338,6 @@ export default function ResetPassword() {
           </Box>
         </Box>
       </Paper>
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-      >
-        <Alert severity={snackbar.severity} variant="filled">
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 }
