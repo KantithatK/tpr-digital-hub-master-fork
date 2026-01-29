@@ -1,5 +1,5 @@
 // ===== ResetPassword.jsx (แทนทั้งไฟล์) =====
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -7,6 +7,7 @@ import {
   Button,
   Typography,
   Stack,
+  Skeleton,
   Snackbar,
   Alert,
   Paper,
@@ -22,6 +23,71 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import heroImg from "@/assets/auth-img.webp";
 import smile from "@/assets/emoji-smile.gif";
 
+function ResetPasswordSkeleton({ isMdDown, isSmall }) {
+  return (
+    <Box
+      component="main"
+      sx={{
+        position: "fixed",
+        inset: 0,
+        bgcolor: "#ffffff",
+        display: "grid",
+        placeItems: "center",
+        px: 2,
+      }}
+    >
+      <Paper
+        elevation={0}
+        sx={{
+          width: "min(980px, 100%)",
+          borderRadius: 2,
+          overflow: "hidden",
+          bgcolor: "#fff",
+          border: "1px solid rgba(53, 53, 53, 0.08)",
+        }}
+      >
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            minHeight: isMdDown ? "unset" : 560,
+          }}
+        >
+          {!isMdDown && (
+            <Box sx={{ position: "relative", p: 3, color: "#111", bgcolor: "#fff" }}>
+              <Skeleton variant="rectangular" sx={{ position: "absolute", inset: 0 }} />
+              <Box sx={{ position: "relative", zIndex: 1, height: "100%", display: "flex", flexDirection: "column" }}>
+                <Box sx={{ flex: 1 }} />
+                <Skeleton variant="text" width={140} />
+              </Box>
+            </Box>
+          )}
+
+          <Box sx={{ p: isSmall ? 3 : 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Box sx={{ width: "min(400px, 100%)" }}>
+              <Stack spacing={1.5} alignItems="center">
+                <Skeleton variant="circular" width={70} height={70} />
+                <Skeleton variant="text" width={260} height={42} />
+                <Skeleton variant="text" width={300} />
+              </Stack>
+
+              <Box sx={{ mt: 3 }}>
+                <Stack spacing={2}>
+                  <Skeleton variant="rounded" height={56} />
+                  <Skeleton variant="rounded" height={56} />
+                  <Skeleton variant="rounded" height={52} />
+                  <Skeleton variant="rectangular" height={1} />
+                  <Skeleton variant="text" width="100%" />
+                </Stack>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+      </Paper>
+    </Box>
+  );
+}
+
 export default function ResetPassword() {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -36,6 +102,7 @@ export default function ResetPassword() {
     severity: "info",
   });
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
 
   const PALETTE = useMemo(
     () => ({
@@ -45,6 +112,30 @@ export default function ResetPassword() {
     }),
     []
   );
+
+  useEffect(() => {
+    let alive = true;
+
+    const preload = (src) =>
+      new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(true);
+        img.onerror = () => resolve(false);
+        img.src = src;
+      });
+
+    Promise.all([preload(heroImg), preload(smile)]).finally(() => {
+      if (alive) setPageLoading(false);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (pageLoading) {
+    return <ResetPasswordSkeleton isMdDown={isMdDown} isSmall={isSmall} />;
+  }
 
   // ✅ logic เดิม (ห้ามยุ่ง)
   const handleReset = async (e) => {

@@ -8,6 +8,7 @@ import {
   Typography,
   Stack,
   Paper,
+  Skeleton,
   InputAdornment,
   IconButton,
   CircularProgress,
@@ -18,7 +19,7 @@ import {
 } from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -28,6 +29,85 @@ import { useNotify } from "@/tpr/contexts/notifyContext";
 // ✅ ภาพฝั่งซ้าย
 import heroImg from "@/assets/auth-img.webp";
 import smile from "@/assets/emoji-smile.gif";
+
+function LoginSkeleton({ isMdDown, isSmall }) {
+  return (
+    <Box
+      component="main"
+      sx={{
+        position: "fixed",
+        inset: 0,
+        bgcolor: "#ffffff",
+        display: "grid",
+        placeItems: "center",
+        px: 2,
+      }}
+    >
+      <Paper
+        elevation={0}
+        sx={{
+          width: "min(980px, 100%)",
+          borderRadius: 2,
+          overflow: "hidden",
+          bgcolor: "#fff",
+          border: "1px solid rgba(53, 53, 53, 0.08)",
+        }}
+      >
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            minHeight: isMdDown ? "unset" : 560,
+          }}
+        >
+          {!isMdDown && (
+            <Box sx={{ position: "relative", p: 3, bgcolor: "#fff" }}>
+              <Skeleton variant="rectangular" sx={{ position: "absolute", inset: 0 }} />
+              <Box sx={{ position: "relative", zIndex: 1, height: "100%", display: "flex", flexDirection: "column" }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                  <Skeleton variant="rounded" width={210} height={44} />
+                </Box>
+
+                <Box sx={{ flex: 1, display: "flex", alignItems: "center" }}>
+                  <Box sx={{ width: "100%" }}>
+                    <Skeleton variant="text" width="80%" height={40} />
+                    <Skeleton variant="text" width="65%" height={40} />
+                  </Box>
+                </Box>
+
+                <Skeleton variant="text" width={140} />
+              </Box>
+            </Box>
+          )}
+
+          <Box sx={{ p: isSmall ? 3 : 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Box sx={{ width: "min(400px, 100%)" }}>
+              <Stack spacing={1.5} alignItems="center">
+                <Skeleton variant="circular" width={70} height={70} />
+                <Skeleton variant="text" width={240} height={42} />
+                <Skeleton variant="text" width={210} />
+              </Stack>
+
+              <Box sx={{ mt: 3 }}>
+                <Stack spacing={2}>
+                  <Skeleton variant="rounded" height={56} />
+                  <Skeleton variant="rounded" height={56} />
+                  <Skeleton variant="rounded" height={52} />
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Skeleton variant="text" width={110} />
+                    <Skeleton variant="text" width={90} />
+                  </Box>
+                  <Skeleton variant="rectangular" height={1} />
+                  <Skeleton variant="text" width="100%" />
+                </Stack>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+      </Paper>
+    </Box>
+  );
+}
 
 function normalizeEmail(v) {
   return (v || "").trim();
@@ -84,6 +164,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
 
 
   // ✅ color palette ตามที่สั่ง
@@ -113,6 +194,8 @@ export default function Login() {
       } catch {
         if (!alive) return;
 
+      } finally {
+        if (alive) setPageLoading(false);
       }
     };
 
@@ -121,6 +204,10 @@ export default function Login() {
       alive = false;
     };
   }, []);
+
+  if (pageLoading) {
+    return <LoginSkeleton isMdDown={isMdDown} isSmall={isSmall} />;
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();

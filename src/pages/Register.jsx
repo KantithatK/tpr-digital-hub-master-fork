@@ -1,5 +1,5 @@
 // ===== Register.jsx (แทนทั้งไฟล์) =====
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -8,6 +8,7 @@ import {
   Typography,
   Stack,
   Paper,
+  Skeleton,
   InputAdornment,
   IconButton,
   CircularProgress,
@@ -27,6 +28,76 @@ import { useNotify } from "@/tpr/contexts/notifyContext";
 // ✅ ภาพและอีโมจิเดียวกับหน้า Login (ตามฐานล่าสุด)
 import heroImg from "@/assets/auth-img.webp";
 import smile from "@/assets/emoji-smile.gif";
+
+function RegisterSkeleton({ isMdDown, isSmall }) {
+  return (
+    <Box
+      component="main"
+      sx={{
+        position: "fixed",
+        inset: 0,
+        bgcolor: "#ffffff",
+        display: "grid",
+        placeItems: "center",
+        px: 2,
+      }}
+    >
+      <Paper
+        elevation={0}
+        sx={{
+          width: "min(980px, 100%)",
+          borderRadius: 2,
+          overflow: "hidden",
+          bgcolor: "#fff",
+          border: "1px solid rgba(53, 53, 53, 0.08)",
+        }}
+      >
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            minHeight: isMdDown ? "unset" : 560,
+          }}
+        >
+          {!isMdDown && (
+            <Box sx={{ position: "relative", p: 3, bgcolor: "#fff" }}>
+              <Skeleton variant="rectangular" sx={{ position: "absolute", inset: 0 }} />
+              <Box sx={{ position: "relative", zIndex: 1, height: "100%", display: "flex", flexDirection: "column" }}>
+                <Box sx={{ flex: 1 }} />
+                <Skeleton variant="text" width={140} />
+              </Box>
+            </Box>
+          )}
+
+          <Box sx={{ p: isSmall ? 3 : 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Box sx={{ width: "min(400px, 100%)" }}>
+              <Stack spacing={1.5} alignItems="center">
+                <Skeleton variant="circular" width={70} height={70} />
+                <Skeleton variant="text" width={200} height={42} />
+                <Skeleton variant="text" width={240} />
+              </Stack>
+
+              <Box sx={{ mt: 3 }}>
+                <Stack spacing={2}>
+                  <Skeleton variant="rounded" height={56} />
+                  <Skeleton variant="rounded" height={56} />
+                  <Skeleton variant="rounded" height={56} />
+                  <Skeleton variant="rounded" height={52} />
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Skeleton variant="text" width={120} />
+                    <Skeleton variant="text" width={170} />
+                  </Box>
+                  <Skeleton variant="rectangular" height={1} />
+                  <Skeleton variant="text" width="100%" />
+                </Stack>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+      </Paper>
+    </Box>
+  );
+}
 
 function normalizeEmail(v) {
   return (v || "").trim();
@@ -77,6 +148,7 @@ export default function Register() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
 
   // ✅ palette ตามฐาน Login ล่าสุด
   const PALETTE = useMemo(
@@ -87,6 +159,30 @@ export default function Register() {
     }),
     []
   );
+
+  useEffect(() => {
+    let alive = true;
+
+    const preload = (src) =>
+      new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(true);
+        img.onerror = () => resolve(false);
+        img.src = src;
+      });
+
+    Promise.all([preload(heroImg), preload(smile)]).finally(() => {
+      if (alive) setPageLoading(false);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (pageLoading) {
+    return <RegisterSkeleton isMdDown={isMdDown} isSmall={isSmall} />;
+  }
 
   // ✅ ===== logic เดิม (ห้ามยุ่ง) =====
   const handleRegister = async (e) => {
