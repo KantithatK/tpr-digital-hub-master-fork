@@ -97,7 +97,7 @@ function NotifyDialog({ state, onClose }) {
         elevation: 0,
         sx: {
           width: 'min(320px, calc(100vw - 32px))',
-          borderRadius: 1,
+          borderRadius: 2,
           overflow: 'hidden',
           boxShadow: 'none',
           bgcolor: '#fff',

@@ -1,4 +1,5 @@
-import { useState } from "react";
+// ===== ResetPassword.jsx (แทนทั้งไฟล์) =====
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -9,16 +10,24 @@ import {
   Snackbar,
   Alert,
   Paper,
+  CircularProgress,
+  Divider,
+  useTheme,
+  useMediaQuery,
 } from "@mui/material";
 import { supabase } from "@/lib/supabaseClient";
-import { useTheme, useMediaQuery } from "@mui/material";
-import logo from "@/assets/logo.png";
-import { colors } from "@/theme/colors";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+
+// ✅ ใช้ layout/asset เดียวกับหน้า Login ล่าสุด
+import heroImg from "@/assets/login-page.png";
+import smile from "@/assets/emoji-smile.gif";
 
 export default function ResetPassword() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isSmall = useMediaQuery(theme.breakpoints.down("sm"));
+  const isMdDown = useMediaQuery(theme.breakpoints.down("md"));
+
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [snackbar, setSnackbar] = useState({
@@ -28,6 +37,16 @@ export default function ResetPassword() {
   });
   const [loading, setLoading] = useState(false);
 
+  const PALETTE = useMemo(
+    () => ({
+      success: "#08d84c",
+      warning: "#fdca01",
+      error: "#ff4059",
+    }),
+    []
+  );
+
+  // ✅ logic เดิม (ห้ามยุ่ง)
   const handleReset = async (e) => {
     e.preventDefault();
     if (!password || !confirm) {
@@ -49,98 +68,197 @@ export default function ResetPassword() {
     setTimeout(() => navigate("/login"), 1200);
   };
 
+  const textFieldFontSx = {
+    "& .MuiInputBase-input": { fontFamily: "Kanit" },
+    "& .MuiInputLabel-root": { fontFamily: "Kanit" },
+    "& .MuiFormHelperText-root": { fontFamily: "Kanit" },
+    "& input::placeholder": { fontFamily: "Kanit" },
+  };
+
+  // ใช้สไตล์เดียวกับหน้า Login (โฟกัสสีเขียว)
+  const fieldSx = {
+    "& .MuiInputLabel-root": { color: "#111" },
+    "& .MuiOutlinedInput-root": {
+      borderRadius: 2,
+      "& fieldset": { borderColor: "rgba(17,17,17,0.16)" },
+      "&:hover fieldset": { borderColor: "rgba(17,17,17,0.30)" },
+      "&.Mui-focused fieldset": { borderColor: PALETTE.success, borderWidth: 2 },
+    },
+    "& input:-webkit-autofill": {
+      WebkitBoxShadow: "0 0 0 1000px #fff inset",
+    },
+  };
+
   return (
     <Box
       component="main"
-      sx={{ position: "fixed", inset: 0, display: "grid", placeItems: "center", px: 2 }}
+      sx={{
+        position: "fixed",
+        inset: 0,
+        bgcolor: "#ffffff",
+        display: "grid",
+        placeItems: "center",
+        px: 2,
+      }}
     >
-      <Paper elevation={5} sx={{ width: 420, maxWidth: "100%", p: 4, borderRadius: 3 }}>
-        <Box textAlign="center" mb={2}>
-          <Box
-            component="img"
-            src={logo}
-            alt="TPR logo"
-            sx={{ width: isSmall ? 80 : 96, height: "auto", mx: "auto", mb: 1 }}
-          />
-          <Typography variant="h5" fontWeight={700}>รีเซ็ตรหัสผ่าน</Typography>
-          <Typography variant="body2" color="text.secondary">
-            กรุณากรอกรหัสผ่านใหม่ของคุณ
-          </Typography>
-        </Box>
-
-        <Box component="form" onSubmit={handleReset}>
-          <Stack spacing={2}>
-            <TextField
-              label="รหัสผ่านใหม่"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              fullWidth
-              size="small"
-              sx={{
-                '& .MuiInputLabel-root': { color: '#000' },
-                '& .MuiInputLabel-root.Mui-focused': { color: '#000' },
-                '& .MuiFormLabel-root': { color: '#000' },
-                '& .MuiOutlinedInput-root': {
-                  '& fieldset': { borderColor: '#000' },
-                  '&:hover fieldset': { borderColor: '#000' },
-                  '&.Mui-focused fieldset': { borderColor: '#000' },
-                },
-                '& input:-webkit-autofill': {
-                  WebkitBoxShadow: '0 0 0 1000px #fff inset',
-                },
-              }}
-            />
-            <TextField
-              label="ยืนยันรหัสผ่านใหม่"
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              fullWidth
-              size="small"
-              sx={{
-                '& .MuiInputLabel-root': { color: '#000' },
-                '& .MuiInputLabel-root.Mui-focused': { color: '#000' },
-                '& .MuiFormLabel-root': { color: '#000' },
-                '& .MuiOutlinedInput-root': {
-                  '& fieldset': { borderColor: '#000' },
-                  '&:hover fieldset': { borderColor: '#000' },
-                  '&.Mui-focused fieldset': { borderColor: '#000' },
-                },
-                '& input:-webkit-autofill': {
-                  WebkitBoxShadow: '0 0 0 1000px #fff inset',
-                },
-              }}
-            />
-
-            <Button
-              type="submit"
-              variant="contained"
-              size="medium"
-              sx={{
-                backgroundColor: colors.buttonMain,
-                color: colors.buttonText,
-                '&:hover': { backgroundColor: colors.buttonHover },
-              }}
-              fullWidth
-              disabled={loading}
-            >
-              {loading ? "กำลังบันทึก..." : "เปลี่ยนรหัสผ่าน"}
-            </Button>
-          </Stack>
-        </Box>
-
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={3000}
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      <Paper
+        elevation={0}
+        sx={{
+          width: "min(980px, 100%)",
+          borderRadius: 2,
+          overflow: "hidden",
+          bgcolor: "#fff",
+          border: "1px solid rgba(53, 53, 53, 0.08)",
+        }}
+      >
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            minHeight: isMdDown ? "unset" : 560,
+          }}
         >
-          <Alert severity={snackbar.severity} variant="filled">
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
+          {/* LEFT PANEL */}
+          {!isMdDown && (
+            <Box sx={{ position: "relative", p: 3, color: "#111", bgcolor: "#fff" }}>
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  backgroundImage: `url(${heroImg})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  opacity: 1,
+                }}
+              />
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "rgba(255, 255, 255, 0.1)",
+                }}
+              />
+
+              <Box sx={{ position: "relative", zIndex: 1, height: "100%", display: "flex", flexDirection: "column" }}>
+                <Box sx={{ flex: 1 }} />
+                <Typography
+                  sx={{
+                    opacity: 0.75,
+                    fontSize: 12,
+                    color: "rgba(15,23,42,0.75)",
+                    fontFamily: "Kanit",
+                    textAlign: "center",
+                  }}
+                >
+                  เวอร์ชัน 1.0.0 Beta
+                </Typography>
+              </Box>
+            </Box>
+          )}
+
+          {/* RIGHT PANEL */}
+          <Box sx={{ p: isSmall ? 3 : 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Box sx={{ width: "min(400px, 100%)" }}>
+              <Stack spacing={1.5} alignItems="center">
+                <Box component="img" src={smile} alt="smile" sx={{ width: 70, height: 70, mb: 0.5 }} />
+
+                <Typography
+                  sx={{
+                    fontFamily: "Kanit",
+                    fontSize: 30,
+                    fontWeight: 900,
+                    letterSpacing: "-0.03em",
+                    textAlign: "center",
+                  }}
+                >
+                  เปลี่ยนรหัสผ่านใหม่
+                </Typography>
+
+                <Typography
+                  sx={{
+                    fontFamily: "Kanit",
+                    mt: 0.5,
+                    color: "text.secondary",
+                    textAlign: "center",
+                  }}
+                >
+                  กรุณากำหนดรหัสผ่านใหม่สำหรับบัญชีของคุณ
+                </Typography>
+              </Stack>
+
+              <Box component="form" onSubmit={handleReset} sx={{ mt: 3 }}>
+                <Stack spacing={2}>
+                  <TextField
+                    label="รหัสผ่านใหม่"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    fullWidth
+                    size="medium"
+                    sx={{ ...fieldSx, ...textFieldFontSx }}
+                    disabled={loading}
+                  />
+
+                  <TextField
+                    label="ยืนยันรหัสผ่านใหม่"
+                    type="password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    fullWidth
+                    size="medium"
+                    sx={{ ...fieldSx, ...textFieldFontSx }}
+                    disabled={loading}
+                  />
+
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    size="large"
+                    fullWidth
+                    disabled={loading}
+                    startIcon={loading ? <CircularProgress size={20} /> : <CheckCircleIcon />}
+                    sx={{
+                      fontFamily: "Kanit",
+                      mt: 0.5,
+                      py: 1.25,
+                      borderRadius: 2,
+                      textTransform: "none",
+                      fontWeight: 500,
+                      letterSpacing: "0.01em",
+                      fontSize: 16,
+                      backgroundColor: PALETTE.error,
+                      boxShadow: "0 14px 30px rgba(15, 23, 42, 0.12)",
+                      "&:hover": {
+                        backgroundColor: PALETTE.error,
+                        boxShadow: "0 16px 34px rgba(15, 23, 42, 0.16)",
+                      },
+                    }}
+                  >
+                    {loading ? "กำลังบันทึก..." : "ยืนยันการเปลี่ยนรหัสผ่าน"}
+                  </Button>
+
+                  <Divider sx={{ opacity: 0.6 }} />
+
+                  <Typography sx={{ color: "text.secondary", fontSize: 12, fontFamily: "Kanit" }}>
+                    * หากลิงก์หมดอายุ กรุณากด “ลืมรหัสผ่าน?” ใหม่จากหน้าเข้าสู่ระบบ
+                  </Typography>
+                </Stack>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
       </Paper>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      >
+        <Alert severity={snackbar.severity} variant="filled">
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
