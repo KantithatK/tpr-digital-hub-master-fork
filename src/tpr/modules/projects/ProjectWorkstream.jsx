@@ -96,6 +96,15 @@ function parseISODateOnlyToMs(iso) {
   return Number.isFinite(t) ? t : null;
 }
 
+function validatePlannedHoursText(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  const n = Number(s);
+  if (!Number.isFinite(n)) return 'กรุณากรอกชั่วโมงเป็นตัวเลข';
+  if (n <= 0) return 'ชั่วโมงต้องมากกว่า 0';
+  return '';
+}
+
 function toDayjsDate(iso) {
   try {
     const s = String(iso || '').trim();
@@ -111,25 +120,35 @@ function toDayjsDate(iso) {
 function validatePhaseDates({ startISO, endISO, workStartISO, workEndISO }) {
   const errors = { start_date: '', end_date: '' };
 
-  const workStart = toDayjsDate(workStartISO);
-  const workEnd = toDayjsDate(workEndISO);
-  const phaseStart = toDayjsDate(startISO);
-  const phaseEnd = toDayjsDate(endISO);
+  const start = String(startISO || '').trim();
+  const end = String(endISO || '').trim();
+  const workStart = String(workStartISO || '').trim();
+  const workEnd = String(workEndISO || '').trim();
 
-  // start_date bounds (only when workstream bounds exist)
-  if (phaseStart && workStart && phaseStart.isBefore(workStart, 'day')) {
-    errors.start_date = 'วันที่เริ่มต้องไม่ก่อนวันเริ่มของ Work';
-  } else if (phaseStart && workEnd && phaseStart.isAfter(workEnd, 'day')) {
-    errors.start_date = 'วันที่เริ่มต้องไม่หลังวันสิ้นสุดของ Work';
-  }
+  // Required (Phase always needs start/end)
+  if (!start) errors.start_date = 'กรุณาเลือกวันที่เริ่ม';
+  if (!end) errors.end_date = 'กรุณาเลือกวันที่สิ้นสุด';
 
-  // end_date bounds + ordering
-  if (phaseEnd && workStart && phaseEnd.isBefore(workStart, 'day')) {
-    errors.end_date = 'วันที่สิ้นสุดต้องไม่ก่อนวันเริ่มของ Work';
-  } else if (phaseEnd && workEnd && phaseEnd.isAfter(workEnd, 'day')) {
-    errors.end_date = 'วันที่สิ้นสุดต้องไม่หลังวันสิ้นสุดของ Work';
-  } else if (phaseEnd && phaseStart && phaseEnd.isBefore(phaseStart, 'day')) {
-    errors.end_date = 'วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่ม';
+  // Enforce within workstream range (must have workstream bounds)
+  if (!errors.start_date && !errors.end_date) {
+    if (start && end) {
+      if (!workStart || !workEnd) {
+        // Workstream has no dates -> cannot validate or allow creating phases
+        if (!workStart) errors.start_date = errors.start_date || 'Work ยังไม่มีวันที่เริ่ม';
+        if (!workEnd) errors.end_date = errors.end_date || 'Work ยังไม่มีวันที่สิ้นสุด';
+      } else {
+        const res = Workstream.validatePhaseRangeWithinWorkstream({
+          start_date: start,
+          end_date: end,
+          work_start: workStart,
+          work_end: workEnd,
+        });
+        if (!res?.ok) {
+          if (res?.errorKey === 'START_BEFORE_BOUNDARY') errors.start_date = res.messageTh;
+          else errors.end_date = res.messageTh;
+        }
+      }
+    }
   }
 
   return errors;
@@ -449,6 +468,8 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
     open: false,
     mode: 'create', // create | edit
     saving: false,
+    autoCalcDirty: false,
+    plannedHoursAuto: false,
     form: {
       id: null,
       code: '',
@@ -463,8 +484,12 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
     errors: {
       start_date: '',
       end_date: '',
+      planned_hours: '',
     },
   }));
+
+  const phaseAutoCalcSeqRef = React.useRef(0);
+  const phaseInverseCalcSeqRef = React.useRef(0);
 
   const [deleteDialog, setDeleteDialog] = React.useState(() => ({
     open: false,
@@ -537,6 +562,8 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
       open: true,
       mode: 'create',
       saving: false,
+      autoCalcDirty: false,
+      plannedHoursAuto: false,
       form: {
         id: null,
         code: Workstream.genPhaseCode(),
@@ -548,7 +575,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
         fee: '',
         note: '',
       },
-      errors: { start_date: '', end_date: '' },
+      errors: { start_date: '', end_date: '', planned_hours: '' },
     });
   }, []);
 
@@ -557,6 +584,10 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
       open: true,
       mode: 'edit',
       saving: false,
+      autoCalcDirty: false,
+      // In edit mode, treat existing planned_hours as derived unless user edits it.
+      // This lets start/end changes re-calc planned_hours automatically.
+      plannedHoursAuto: true,
       form: {
         id: row?.id || null,
         code: row?.code || '',
@@ -568,13 +599,136 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
         fee: row?.fee != null ? String(Number(row.fee || 0)) : '',
         note: row?.note || '',
       },
-      errors: { start_date: '', end_date: '' },
+      errors: { start_date: '', end_date: '', planned_hours: '' },
     });
   }, []);
 
   const closePhaseDialog = React.useCallback(() => {
     setPhaseDialog((prev) => ({ ...prev, open: false, saving: false }));
   }, []);
+
+  // Auto-calc end_date when start_date or planned_hours changes (workdays-aware)
+  React.useEffect(() => {
+    let alive = true;
+
+    async function run() {
+      if (!phaseDialog.open) return;
+      if (!phaseDialog.autoCalcDirty) return;
+
+      const start_date = String(phaseDialog?.form?.start_date || '').trim();
+      const planned_hours = String(phaseDialog?.form?.planned_hours ?? '').trim();
+
+      const plannedErr = validatePlannedHoursText(planned_hours);
+      if (plannedErr) {
+        setPhaseDialog((prev) => ({
+          ...prev,
+          errors: { ...(prev.errors || {}), planned_hours: plannedErr },
+        }));
+        return;
+      }
+
+      const hoursNum = Number(planned_hours || 0);
+      if (!start_date || !Number.isFinite(hoursNum) || hoursNum <= 0) return;
+
+      const boundary_start = wsStartISO || '';
+      const boundary_end = wsEndISO || '';
+      if (!boundary_start || !boundary_end) return;
+
+      const seq = (phaseAutoCalcSeqRef.current += 1);
+
+      let res;
+      try {
+        res = await Workstream.calcPhaseEndDateFromPlannedHours({
+          supabaseClient: null,
+          start_date,
+          planned_hours: hoursNum,
+          boundary_start,
+          boundary_end,
+        });
+      } catch {
+        return;
+      }
+
+      if (!alive) return;
+      if (seq !== phaseAutoCalcSeqRef.current) return;
+
+      const nextStart = res?.startISO || start_date;
+      const nextEnd = res?.endISO || '';
+
+      setPhaseDialog((prev) => {
+        const nextForm = { ...prev.form, start_date: nextStart, end_date: nextEnd };
+        const nextErrors = validatePhaseDates({
+          startISO: nextForm.start_date,
+          endISO: nextForm.end_date,
+          workStartISO: wsStartISO,
+          workEndISO: wsEndISO,
+        });
+
+        return {
+          ...prev,
+          form: nextForm,
+          errors: { ...(prev.errors || {}), ...nextErrors, planned_hours: '' },
+        };
+      });
+    }
+
+    run();
+    return () => {
+      alive = false;
+    };
+  }, [phaseDialog.autoCalcDirty, phaseDialog.form.planned_hours, phaseDialog.form.start_date, phaseDialog.open, wsEndISO, wsStartISO]);
+
+  // If user sets both start_date and end_date (and planned_hours is empty),
+  // compute planned_hours = workdays_between * 8 using calendar overrides.
+  React.useEffect(() => {
+    let alive = true;
+
+    async function runInv() {
+      if (!phaseDialog.open) return;
+
+      const start = String(phaseDialog?.form?.start_date || '').trim();
+      const end = String(phaseDialog?.form?.end_date || '').trim();
+      const planned = String(phaseDialog?.form?.planned_hours ?? '').trim();
+      const plannedAuto = Boolean(phaseDialog?.plannedHoursAuto);
+
+      if (!start || !end) return;
+      if (planned && !plannedAuto) return;
+
+      const seq = (phaseInverseCalcSeqRef.current += 1);
+
+      let res;
+      try {
+        res = await Workstream.calcPhasePlannedHoursFromDates({
+          supabaseClient: null,
+          start_date: start,
+          end_date: end,
+        });
+      } catch {
+        return;
+      }
+
+      if (!alive) return;
+      if (seq !== phaseInverseCalcSeqRef.current) return;
+
+      const nextPlanned = res?.planned_hours ? String(res.planned_hours) : '';
+
+      setPhaseDialog((prev) => {
+        const prevPlanned = String(prev?.form?.planned_hours ?? '').trim();
+        if (prevPlanned === nextPlanned && prev?.plannedHoursAuto) return prev;
+        return {
+          ...prev,
+          plannedHoursAuto: true,
+          form: { ...prev.form, planned_hours: nextPlanned },
+          errors: { ...(prev.errors || {}), planned_hours: '' },
+        };
+      });
+    }
+
+    runInv();
+    return () => {
+      alive = false;
+    };
+  }, [phaseDialog.form.end_date, phaseDialog.form.planned_hours, phaseDialog.form.start_date, phaseDialog.open, phaseDialog.plannedHoursAuto]);
 
   const savePhaseDialog = React.useCallback(async () => {
     if (!projectId) return;
@@ -589,6 +743,27 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
       return;
     }
 
+    // Phase requires start/end (and requires workstream bounds)
+    if (!wsStartISO || !wsEndISO) {
+      window.alert('Work ยังไม่มีช่วงวันที่เริ่ม/สิ้นสุด จึงไม่สามารถสร้าง/แก้ไข Phase ได้');
+      return;
+    }
+
+    if (!form.start_date) {
+      setPhaseDialog((prev) => ({ ...prev, errors: { ...(prev.errors || {}), start_date: 'กรุณาเลือกวันที่เริ่ม' } }));
+      return;
+    }
+    if (!form.end_date) {
+      setPhaseDialog((prev) => ({ ...prev, errors: { ...(prev.errors || {}), end_date: 'กรุณาเลือกวันที่สิ้นสุด' } }));
+      return;
+    }
+
+    const plannedErr = validatePlannedHoursText(form.planned_hours);
+    if (plannedErr) {
+      setPhaseDialog((prev) => ({ ...prev, errors: { ...(prev.errors || {}), planned_hours: plannedErr } }));
+      return;
+    }
+
     // validate dates against workstream range (only when workstream start/end exist)
     const dateErrors = validatePhaseDates({
       startISO: form.start_date,
@@ -598,7 +773,19 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
     });
 
     if (dateErrors.start_date || dateErrors.end_date) {
-      setPhaseDialog((prev) => ({ ...prev, errors: dateErrors }));
+      setPhaseDialog((prev) => ({ ...prev, errors: { ...(prev.errors || {}), ...dateErrors } }));
+      return;
+    }
+
+    const rangeRes = Workstream.validatePhaseRangeWithinWorkstream({
+      start_date: form.start_date,
+      end_date: form.end_date,
+      work_start: wsStartISO,
+      work_end: wsEndISO,
+    });
+
+    if (!rangeRes?.ok) {
+      window.alert(rangeRes?.messageTh || 'ช่วงวันที่ไม่ถูกต้อง');
       return;
     }
 
@@ -612,8 +799,8 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
         code,
         name,
         status,
-        start_date: form.start_date || null,
-        end_date: form.end_date || null,
+        start_date: form.start_date,
+        end_date: form.end_date,
         planned_hours: Number(form.planned_hours || 0),
         fee: Number(form.fee || 0),
         note: form.note || null,
@@ -1426,7 +1613,14 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
                         workStartISO: wsStartISO,
                         workEndISO: wsEndISO,
                       });
-                      return { ...prev, form: nextForm, errors: nextErrors };
+                      const hadManualHours = Boolean(String(prev?.form?.planned_hours ?? '').trim()) && !prev?.plannedHoursAuto;
+                      return {
+                        ...prev,
+                        autoCalcDirty: true,
+                        plannedHoursAuto: hadManualHours ? false : true,
+                        form: nextForm,
+                        errors: { ...(prev.errors || {}), ...nextErrors },
+                      };
                     })
                   }
                   slotProps={{
@@ -1453,7 +1647,13 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
                         workStartISO: wsStartISO,
                         workEndISO: wsEndISO,
                       });
-                      return { ...prev, form: nextForm, errors: nextErrors };
+                      const hadManualHours = Boolean(String(prev?.form?.planned_hours ?? '').trim()) && !prev?.plannedHoursAuto;
+                      return {
+                        ...prev,
+                        plannedHoursAuto: hadManualHours ? false : true,
+                        form: nextForm,
+                        errors: { ...(prev.errors || {}), ...nextErrors },
+                      };
                     })
                   }
                   slotProps={{
@@ -1469,11 +1669,26 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
             </LocalizationProvider>
 
             <TextField
+             sx={{display:'none'}}
               size="small"
               label="ชั่วโมงวางแผน"
               type="number"
               value={phaseDialog.form.planned_hours}
-              onChange={(e) => setPhaseDialog((prev) => ({ ...prev, form: { ...prev.form, planned_hours: e.target.value } }))}
+              onChange={(e) =>
+                setPhaseDialog((prev) => {
+                  const planned_hours = e.target.value;
+                  const plannedErr = validatePlannedHoursText(planned_hours);
+                  return {
+                    ...prev,
+                    autoCalcDirty: true,
+                    plannedHoursAuto: false,
+                    form: { ...prev.form, planned_hours },
+                    errors: { ...(prev.errors || {}), planned_hours: plannedErr },
+                  };
+                })
+              }
+              error={Boolean(phaseDialog?.errors?.planned_hours)}
+              helperText={phaseDialog?.errors?.planned_hours || ''}
               fullWidth
             />
 
@@ -1493,8 +1708,13 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
             variant="contained"
             color="primary"
             onClick={savePhaseDialog}
-            disabled={phaseDialog.saving}
-            sx={{ ...actionBtnSx }}
+            disabled={
+              phaseDialog.saving ||
+              !phaseDialog.form.start_date ||
+              !phaseDialog.form.end_date ||
+              Boolean(phaseDialog?.errors?.start_date || phaseDialog?.errors?.end_date || phaseDialog?.errors?.planned_hours)
+            }
+            sx={{ ...actionBtnSx }} 
             startIcon={<SaveIcon />}
             size="medium"
           >

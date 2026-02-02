@@ -509,6 +509,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     mode: 'create',
     saving: false,
     autoCalcDirty: false,
+    plannedHoursAuto: false,
     form: {
       id: null,
       code: '',
@@ -660,6 +661,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       mode: 'create',
       saving: false,
       autoCalcDirty: false,
+      plannedHoursAuto: false,
       form: { id: null, code: genWorkCode(), name: '', status: 'ยังไม่เริ่ม', start_date: '', end_date: '', planned_hours: '', budget_amount: '' },
       errors: { start_date: '', end_date: '', planned_hours: '' },
     });
@@ -671,6 +673,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       mode: 'edit',
       saving: false,
       autoCalcDirty: false,
+      plannedHoursAuto: false,
       form: {
         id: row?.id || null,
         code: row?.code || '',
@@ -774,9 +777,10 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       const start = String(workDialog?.form?.start_date || '').trim();
       const end = String(workDialog?.form?.end_date || '').trim();
       const planned = String(workDialog?.form?.planned_hours ?? '').trim();
+      const plannedAuto = Boolean(workDialog?.plannedHoursAuto);
 
       if (!start || !end) return;
-      if (planned) return; // only compute when user hasn't provided hours
+      if (planned && !plannedAuto) return; // don't override user-provided hours
 
       const seq = (workInverseCalcSeqRef.current += 1);
 
@@ -804,11 +808,20 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         if (seq !== workInverseCalcSeqRef.current) return;
 
         const hours = workdays * 8;
-        setWorkDialog((prev) => ({
-          ...prev,
-          form: { ...prev.form, planned_hours: hours ? String(hours) : '' },
-          errors: { ...(prev.errors || {}), planned_hours: '' },
-        }));
+        setWorkDialog((prev) => {
+          const nextPlanned = hours ? String(hours) : '';
+          const prevPlanned = String(prev?.form?.planned_hours ?? '').trim();
+
+          // Avoid redundant state updates (prevents effect loops)
+          if (prevPlanned === nextPlanned && prev?.plannedHoursAuto) return prev;
+
+          return {
+            ...prev,
+            plannedHoursAuto: true,
+            form: { ...prev.form, planned_hours: nextPlanned },
+            errors: { ...(prev.errors || {}), planned_hours: '' },
+          };
+        });
       } catch {
         // ignore failures silently (don't block user)
       }
@@ -818,7 +831,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     return () => {
       alive = false;
     };
-  }, [workDialog.open, workDialog.form.start_date, workDialog.form.end_date, workDialog.form.planned_hours]);
+  }, [workDialog.open, workDialog.form.start_date, workDialog.form.end_date, workDialog.form.planned_hours, workDialog.plannedHoursAuto]);
 
   const saveWorkDialog = React.useCallback(async () => {
     if (!projectId) return;
@@ -1918,8 +1931,9 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               </Stack>
             </LocalizationProvider>
             <TextField
+              sx={{display:'none'}}
               size="small"
-              label="ชั่วโมงที่วางแผน (ชั่วโมง)"
+              label="ชั่วโมงที่วางแผน"
               type="number"
               value={workDialog.form.planned_hours}
               onChange={(e) =>
@@ -1929,6 +1943,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                   return {
                     ...prev,
                     autoCalcDirty: true,
+                    plannedHoursAuto: false,
                     form: { ...prev.form, planned_hours },
                     errors: { ...(prev.errors || {}), planned_hours: plannedErr },
                   };
