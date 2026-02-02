@@ -1081,21 +1081,14 @@ export default function CustomersTab({ notify }) {
         <DialogTitle sx={{ fontWeight: 700 }}>ยืนยันการลบ</DialogTitle>
         <DialogContent>
           <Typography>
-            ลบลูกค้า "{deleteTarget?.name_th || ''}" หรือไม่? (ข้อมูลผู้ติดต่อทั้งหมดจะถูกลบตามด้วย)
+            ลบลูกค้า "{deleteTarget?.name_th || ''}" หรือไม่? (ผู้ติดต่อทั้งหมดจะถูกลบตามด้วย)
           </Typography>
         </DialogContent>
-        <DialogActions sx={{ justifyContent: 'center', gap: 1.25 }}>
+        <DialogActions>
           <Button onClick={cancelDelete} disabled={deleting} sx={{ color: 'common.black', ...flatBtnSx }} disableElevation>
             ยกเลิก
           </Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={confirmDelete}
-            disabled={deleting}
-            sx={flatBtnSx}
-            disableElevation
-          >
+          <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting} sx={flatBtnSx} disableElevation>
             {deleting ? 'กำลังลบ...' : 'ลบ'}
           </Button>
         </DialogActions>

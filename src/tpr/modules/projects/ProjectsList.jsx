@@ -5,7 +5,7 @@ import WorkstreamsPanel from './WorkstreamsPanel.jsx';
 import WorkstreamDetail from './WorkstreamDetail.jsx';
 import CreateProjectTab from './CreateProjectTab';
 import ProjectsDashboard from './ProjectsDashboard';
-import ProjectSub from './ProjectSub';
+import ProjectWorkstream from './ProjectWorkstream';
 
 import Paper from '@mui/material/Paper';
 import Table from '@mui/material/Table';
@@ -43,6 +43,10 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
 
 import colors from '../../../theme/colors';
 
@@ -137,9 +141,6 @@ export default function ProjectsList(props) {
   const [deletingMap, setDeletingMap] = React.useState({});
   const [projects, setProjects] = React.useState([]);
 
-  const [progressMap, setProgressMap] = React.useState({});
-  const [loadingProgressMap, setLoadingProgressMap] = React.useState(false);
-
   const [page, setPage] = React.useState(1);
   const pageSize = 10;
 
@@ -147,6 +148,11 @@ export default function ProjectsList(props) {
   const actionMenuOpen = Boolean(actionMenu?.anchorEl);
   const [filterAnchorEl, setFilterAnchorEl] = React.useState(null);
   const [filterStatus, setFilterStatus] = React.useState('');
+
+  // Delete confirmation dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  const [deleteTarget, setDeleteTarget] = React.useState(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   // ✅ สิทธิ์แสดงปุ่ม "สร้างโครงการ" (เฉพาะ: CEO, Admin, Accounting)
   const [canCreateProject, setCanCreateProject] = React.useState(false);
@@ -376,10 +382,8 @@ export default function ProjectsList(props) {
 
   const requestDelete = async (p) => {
     if (!p) return;
-    const name = p?.project_code || p?.code || p?.name_th || p?.name || '';
-    const ok = window.confirm(`คุณต้องการลบโครงการ "${name}" หรือไม่? การกระทำนี้ไม่สามารถเรียกคืนได้`);
-    if (!ok) return;
-    await performDelete(p.id || p.projectId || p.project_id);
+    setDeleteTarget(p);
+    setDeleteDialogOpen(true);
   };
 
   const performDelete = async (id) => {
@@ -404,6 +408,26 @@ export default function ProjectsList(props) {
         delete ns[String(id)];
         return ns;
       });
+    }
+  };
+
+  const cancelDelete = () => {
+    setDeleteDialogOpen(false);
+    setDeleteTarget(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget?.id ?? deleteTarget?.projectId ?? deleteTarget?.project_id ?? null;
+    try {
+      setDeleting(true);
+      await performDelete(id);
+    } catch (err) {
+      console.error('confirmDelete failed', err);
+    } finally {
+      setDeleting(false);
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
     }
   };
 
@@ -552,51 +576,6 @@ export default function ProjectsList(props) {
         setEmployees(empRes.data || []);
         const projList = (projData || []).map((r) => ({ ...r }));
         setProjects(projList);
-
-        // derive progress per project from workstreams (single query)
-        (async () => {
-          try {
-            const pids = Array.isArray(projList) ? projList.map((x) => x.id).filter(Boolean) : [];
-            if (!pids.length) {
-              setProgressMap({});
-              return;
-            }
-
-            setLoadingProgressMap(true);
-
-            const { data: wsRows, error: wsErr } = await supabase
-              .from('tpr_workstreams')
-              .select('project_id, status')
-              .in('project_id', pids)
-              .eq('deleted', false)
-              .eq('archived', false);
-
-            if (wsErr) throw wsErr;
-
-            const grouped = Object.create(null);
-            for (const w of Array.isArray(wsRows) ? wsRows : []) {
-              const pid = String(w.project_id || '');
-              if (!grouped[pid]) grouped[pid] = { total: 0, done: 0 };
-              grouped[pid].total += 1;
-              if (String(w.status || '') === 'เสร็จแล้ว') grouped[pid].done += 1;
-            }
-
-            const map = Object.create(null);
-            for (const id of pids) {
-              const key = String(id);
-              const g = grouped[key];
-              const pct = g && g.total > 0 ? Math.round((g.done / g.total) * 100) : 0;
-              map[key] = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
-            }
-
-            setProgressMap(map);
-          } catch (err) {
-            console.warn('Failed to load workstreams for progress map', err);
-            setProgressMap({});
-          } finally {
-            setLoadingProgressMap(false);
-          }
-        })();
       } catch (err) {
         console.error('Failed to load initial project data', err);
         handleNotify('โหลดข้อมูลโครงการล้มเหลว', 'error');
@@ -633,6 +612,8 @@ export default function ProjectsList(props) {
     '&:focus': { outline: 'none' },
     '&.Mui-selected': { color: colors.primary, fontWeight: 600 },
   };
+
+  const flatBtnSx = { textTransform: 'none', borderRadius: 999 };
 
   // ✅ helper: ไปหน้า “สร้าง/แก้ไขโปรเจค” ในโหมดแก้ไข
   // ✅ ดึงสมาชิกจาก tpr_project_members แล้วเติม initial_team_ids
@@ -1021,44 +1002,27 @@ export default function ProjectsList(props) {
                           </TableCell>
 
                           <TableCell sx={{ width: 240, textAlign: 'center' }}>
-                            {loadingProgressMap ? (
-                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <Box sx={{ flex: 1, maxWidth: 180 }}>
-                                  <LinearProgress
-                                    variant="indeterminate"
-                                    sx={{
-                                      height: 8,
-                                      borderRadius: 6,
-                                      bgcolor: 'rgba(2,6,23,0.06)',
-                                      '& .MuiLinearProgress-bar': { backgroundColor: '#08d84c' },
-                                    }}
-                                  />
-                                </Box>
-                                <Box sx={{ minWidth: 44, textAlign: 'right', fontSize: 14, color: '#334155' }}>—</Box>
-                              </Box>
-                            ) : (
-                              (() => {
-                                const pct = progressMap[String(pid)] ?? 0;
-                                const safePct = Math.max(0, Math.min(100, Number.isFinite(Number(pct)) ? Number(pct) : 0));
-                                return (
-                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Box sx={{ flex: 1, maxWidth: 180 }}>
-                                      <LinearProgress
-                                        variant="determinate"
-                                        value={safePct}
-                                        sx={{
-                                          height: 8,
-                                          borderRadius: 6,
-                                          bgcolor: 'rgba(2,6,23,0.06)',
-                                          '& .MuiLinearProgress-bar': { backgroundColor: '#08d84c' },
-                                        }}
-                                      />
-                                    </Box>
-                                    <Box sx={{ minWidth: 44, textAlign: 'right', fontSize: 14, color: '#334155' }}>{`${safePct}%`}</Box>
+                            {(() => {
+                              const pct = p?.progress ?? 0;
+                              const safePct = Math.max(0, Math.min(100, Number.isFinite(Number(pct)) ? Number(pct) : 0));
+                              return (
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Box sx={{ flex: 1, maxWidth: 180 }}>
+                                    <LinearProgress
+                                      variant="determinate"
+                                      value={safePct}
+                                      sx={{
+                                        height: 8,
+                                        borderRadius: 6,
+                                        bgcolor: 'rgba(2,6,23,0.06)',
+                                        '& .MuiLinearProgress-bar': { backgroundColor: '#08d84c' },
+                                      }}
+                                    />
                                   </Box>
-                                );
-                              })()
-                            )}
+                                  <Box sx={{ minWidth: 44, textAlign: 'right', fontSize: 14, color: '#334155' }}>{`${safePct}%`}</Box>
+                                </Box>
+                              );
+                            })()}
                           </TableCell>
 
                           <TableCell sx={{ textAlign: 'right', width: 80 }}>
@@ -1231,7 +1195,15 @@ export default function ProjectsList(props) {
           ) : !selectedProject ? (
             <Typography color="text.secondary">เลือกโครงการจากแท็บ "ข้อมูลโครงการ" เพื่อจัดการแผนงานย่อย</Typography>
           ) : (
-            tabReady && <ProjectSub project={selectedProject} workstream={selectedWorkstream} />
+            tabReady && (
+              <ProjectWorkstream
+                project={selectedProject}
+                workstream={selectedWorkstream}
+                onNavProjects={() => gotoTab(TAB.LIST)}
+                onNavProject={() => gotoTab(TAB.DASHBOARD)}
+                onNavWorkstreams={() => gotoTab(TAB.WORK)}
+              />
+            )
           )}
         </TabPanel>
       </Paper>
@@ -1246,6 +1218,23 @@ export default function ProjectsList(props) {
           {snackbarMessage}
         </Alert>
       </Snackbar>
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteDialogOpen} onClose={cancelDelete} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>ยืนยันการลบ</DialogTitle>
+        <DialogContent>
+          <Typography>
+            ลบโครงการ "{deleteTarget?.project_code || deleteTarget?.code || deleteTarget?.name_th || deleteTarget?.name || ''}" หรือไม่? การกระทำนี้ไม่สามารถเรียกคืนได้
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={cancelDelete} disabled={deleting} sx={{ color: 'common.black', ...flatBtnSx }} disableElevation>
+            ยกเลิก
+          </Button>
+          <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting} sx={flatBtnSx} disableElevation>
+            {deleting ? 'กำลังลบ...' : 'ลบ'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 

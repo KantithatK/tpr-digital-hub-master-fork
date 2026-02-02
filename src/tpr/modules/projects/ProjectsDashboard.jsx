@@ -36,7 +36,6 @@ import OfflineBoltIcon from '@mui/icons-material/OfflineBolt';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import InfoOutlineIcon from '@mui/icons-material/InfoOutline';
 import Badge from '@mui/material/Badge';
 import Popover from '@mui/material/Popover';
 import List from '@mui/material/List';
@@ -57,12 +56,12 @@ import { supabase } from '../../../lib/supabaseClient';
 const BRAND = '#ff4059';
 
 // use Thai locale for datepickers
-try { dayjs.locale && dayjs.locale('th'); } catch  { /* ignore */ }
+try { dayjs.locale && dayjs.locale('th'); } catch { /* ignore */ }
 
 function genWorkCode() {
   try {
     return `WS-${dayjs().format('YYYYMMDD-HHmmss')}`;
-  } catch  {
+  } catch {
     return `WS-${Date.now()}`;
   }
 }
@@ -90,6 +89,59 @@ function truncateText(str, max = 40) {
   }
 }
 
+function toDayjsDate(iso) {
+  try {
+    const s = String(iso || '').trim();
+    if (!s) return null;
+    const d = dayjs(s);
+    if (!d || !d.isValid || !d.isValid()) return null;
+    return d.startOf('day');
+  } catch {
+    return null;
+  }
+}
+
+function validateWorkDates({ startISO, endISO, projectStartISO, projectEndISO }) {
+  const errors = { start_date: '', end_date: '' };
+
+  const projectStart = toDayjsDate(projectStartISO);
+  const projectEnd = toDayjsDate(projectEndISO);
+  const workStart = toDayjsDate(startISO);
+  const workEnd = toDayjsDate(endISO);
+
+  const res = Projects.validateRangeWithinBoundary({
+    start_date: startISO,
+    end_date: endISO,
+    boundary_start: projectStartISO,
+    boundary_end: projectEndISO,
+  });
+
+  if (!res?.ok) {
+    if (res?.errorKey === 'START_BEFORE_BOUNDARY') errors.start_date = res.messageTh || '';
+    else if (res?.errorKey === 'END_AFTER_BOUNDARY') errors.end_date = res.messageTh || '';
+    else if (res?.errorKey === 'END_BEFORE_START') errors.end_date = res.messageTh || '';
+  }
+
+  // Extra guardrails (UI-level): keep both dates inside [projectStart, projectEnd]
+  if (!errors.start_date && workStart && projectEnd && workStart.isAfter(projectEnd, 'day')) {
+    errors.start_date = 'วันที่เริ่มต้องไม่หลังวันสิ้นสุดโครงการ';
+  }
+  if (!errors.end_date && workEnd && projectStart && workEnd.isBefore(projectStart, 'day')) {
+    errors.end_date = 'วันที่สิ้นสุดต้องไม่ก่อนวันเริ่มโครงการ';
+  }
+
+  return errors;
+}
+
+function validatePlannedHoursText(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  const n = Number(s);
+  if (!Number.isFinite(n)) return 'กรุณากรอกชั่วโมงที่วางแผนเป็นตัวเลข';
+  if (n <= 0) return 'กรุณากรอกชั่วโมงที่วางแผนมากกว่า 0';
+  return '';
+}
+
 // ===== Workstream UI helpers (UI only, logic เดี๋ยวไปทำใน Projects.js) =====
 function StatusPill({ status }) {
   const sRaw = String(status || '');
@@ -98,20 +150,20 @@ function StatusPill({ status }) {
   // mapping ตามภาพตัวอย่าง
   const map = {
     // Thai statuses from SQL
-    'เสร็จแล้ว': { label: 'เสร็จแล้ว', dot: '#22c55e', bg: '#f0fdf4', border: '#bbf7d0', text: '#166534' },
-    'ล่าช้า': { label: 'ล่าช้า', dot: '#fb7185', bg: '#fff1f2', border: '#fecdd3', text: '#9f1239' },
-    'เสี่ยง': { label: 'เสี่ยง', dot: '#fbbf24', bg: '#fffbeb', border: '#fde68a', text: '#92400e' },
-    'ยังไม่เริ่ม': { label: 'ยังไม่เริ่ม', dot: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0', text: '#475569' },
-    'ทำอยู่': { label: 'ทำอยู่', dot: '#a78bfa', bg: '#f5f3ff', border: '#ddd6fe', text: '#5b21b6' },
-    planning: { label: 'ยังไม่เริ่ม', dot: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0', text: '#475569' },
+    'เสร็จแล้ว': { label: 'เสร็จแล้ว', dot: '#08d84c', bg: '#ffffff', border: '#08d84c', text: '#166534' },
+    'ล่าช้า': { label: 'ล่าช้า', dot: '#8B5CF6', bg: '#ffffff', border: '#8B5CF6', text: '#9f1239' },
+    'เสี่ยง': { label: 'เสี่ยง', dot: '#ff4059', bg: '#ffffff', border: '#ff4059', text: '#92400e' },
+    'ยังไม่เริ่ม': { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
+    'ทำอยู่': { label: 'ทำอยู่', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
+    planning: { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
 
     // legacy normalized keys
-    done: { label: 'เสร็จแล้ว', dot: '#22c55e', bg: '#f0fdf4', border: '#bbf7d0', text: '#166534' },
-    ontrack: { label: 'เสร็จแล้ว', dot: '#22c55e', bg: '#f0fdf4', border: '#bbf7d0', text: '#166534' },
-    delayed: { label: 'ล่าช้า', dot: '#fb7185', bg: '#fff1f2', border: '#fecdd3', text: '#9f1239' },
-    risk: { label: 'เสี่ยง', dot: '#fbbf24', bg: '#fffbeb', border: '#fde68a', text: '#92400e' },
-    pending: { label: 'ยังไม่เริ่ม', dot: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0', text: '#475569' },
-    doing: { label: 'ทำอยู่', dot: '#a78bfa', bg: '#f5f3ff', border: '#ddd6fe', text: '#5b21b6' },
+    done: { label: 'เสร็จแล้ว', dot: '#22c55e', bg: '#ffffff', border: '#bbf7d0', text: '#166534' },
+    ontrack: { label: 'เสร็จแล้ว', dot: '#22c55e', bg: '#ffffff', border: '#bbf7d0', text: '#166534' },
+    delayed: { label: 'ล่าช้า', dot: '#8B5CF6', bg: '#ffffff', border: '#8B5CF6', text: '#9f1239' },
+    risk: { label: 'เสี่ยง', dot: '#ff4059', bg: '#ffffff', border: '#ff4059', text: '#92400e' },
+    pending: { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
+    doing: { label: 'ทำอยู่', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
   };
 
   const cfg = map[sRaw] || map[s] || map.pending;
@@ -164,8 +216,7 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary' }}>ชื่อ Work</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', width: 130 }}>สถานะ</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', width: 170 }}>ความคืบหน้า</TableCell>
-            <TableCell sx={{ fontWeight: 700, color: 'text.secondary', display: { xs: 'none', md: 'table-cell' } }}>งบประมาณ</TableCell>
-            <TableCell sx={{ fontWeight: 700, color: 'text.secondary', display: { xs: 'none', md: 'table-cell' } }}>ช่วงเวลา</TableCell>
+            <TableCell sx={{ fontWeight: 700, color: 'text.secondary', display: { xs: 'none', md: 'table-cell' }, textAlign: 'center' }}>ช่วงเวลา</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', textAlign: 'center', width: 110 }}>เข้า Work</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', textAlign: 'center', width: 90 }}>จัดการ</TableCell>
           </TableRow>
@@ -174,129 +225,98 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
         <TableBody>
           {loading
             ? Array.from({ length: 4 }).map((_, i) => (
-                <TableRow key={`sk-${i}`}>
-                  <TableCell sx={{ textAlign: 'center' }}>
-                    <Skeleton variant="text" width={48} />
+              <TableRow key={`sk-${i}`}>
+                <TableCell sx={{ textAlign: 'center' }}>
+                  <Skeleton variant="text" width={48} />
+                </TableCell>
+                <TableCell>
+                  <Skeleton variant="text" width={240} />
+                </TableCell>
+                <TableCell>
+                  <Skeleton variant="rounded" width={92} height={24} />
+                </TableCell>
+                <TableCell>
+                  <Skeleton variant="rounded" width={140} height={10} />
+                  <Skeleton variant="text" width={40} />
+                </TableCell>
+                <TableCell sx={{ display: { xs: 'none', md: 'table-cell' }, textAlign: 'center' }}>
+                  <Skeleton variant="text" width={120} />
+                </TableCell>
+                <TableCell sx={{ textAlign: 'center' }}>
+                  <Skeleton variant="text" width={40} />
+                </TableCell>
+              </TableRow>
+            ))
+            : list.map((r, idx) => {
+              const key = r.id || r.code || idx;
+              const progressPct = clamp(Number(r.progressPct || 0), 0, 100);
+
+              
+
+              return (
+                <TableRow
+                  key={key}
+                  hover
+                  sx={{ cursor: 'pointer' }}
+                  onClick={() => {
+                    try {
+                      onRowClick?.(r);
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  <TableCell sx={{ textAlign: 'center' }}>{`W-${idx + 1}`}</TableCell>
+                  <TableCell>{r.name || '-'}</TableCell>
+                  <TableCell>
+                    <StatusPill status={r.status || 'ยังไม่เริ่ม'} />
                   </TableCell>
                   <TableCell>
-                    <Skeleton variant="text" width={240} />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton variant="rounded" width={92} height={24} />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton variant="rounded" width={140} height={10} />
-                    <Skeleton variant="text" width={40} />
-                  </TableCell>
-                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                    <Skeleton variant="text" width={120} />
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ flex: 1, minWidth: 80 }}>
+                        <LinearProgress
+                          variant="determinate"
+                          value={progressPct}
+                          sx={{ height: 8, borderRadius: 99, bgcolor: '#e2e8f0', '& .MuiLinearProgress-bar': { bgcolor: '#08d84c' } }}
+                        />
+                      </Box>
+                      <Typography sx={{ fontSize: 12.5, fontWeight: 500, minWidth: 40, textAlign: 'right' }}>{`${Math.round(progressPct)}%`}</Typography>
+                    </Box>
                   </TableCell>
                   <TableCell sx={{ display: { xs: 'none', md: 'table-cell' }, textAlign: 'center' }}>
-                    <Skeleton variant="text" width={80} />
+                    {r.dateRange || '-'}
                   </TableCell>
                   <TableCell sx={{ textAlign: 'center' }}>
-                    <Skeleton variant="text" width={40} />
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        try {
+                          onGoWorkRow?.(r);
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      sx={{ textTransform: 'none', borderRadius: 2, boxShadow: 'none', fontWeight: 700 }}
+                    >
+                      เข้า Work
+                    </Button>
+                  </TableCell>
+
+                  <TableCell sx={{ textAlign: 'center' }}>
+                    <IconButton
+                      onClick={(e) => handleOpenMenu(e, r)}
+                      aria-label="เมนูเพิ่มเติม"
+                      aria-controls={menuAnchor ? 'ws-row-menu' : undefined}
+                      aria-haspopup="true"
+                    >
+                      <MoreHorizIcon />
+                    </IconButton>
                   </TableCell>
                 </TableRow>
-              ))
-                : list.map((r, idx) => {
-                const key = r.id || r.code || idx;
-                const progressPct = clamp(Number(r.progressPct || 0), 0, 100);
-
-                const budgetMeta = r.budgetMeta || null;
-
-                  return (
-                  <TableRow
-                    key={key}
-                    hover
-                    sx={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      try {
-                        onRowClick?.(r);
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                  >
-                    <TableCell sx={{ textAlign: 'center' }}>{`W-${idx + 1}`}</TableCell>
-                    <TableCell>{r.name || '-'}</TableCell>
-                    <TableCell>
-                      <StatusPill status={r.status || 'ยังไม่เริ่ม'} />
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ flex: 1, minWidth: 80 }}>
-                          <LinearProgress
-                            variant="determinate"
-                            value={progressPct}
-                            sx={{ height: 8, borderRadius: 99, bgcolor: '#e2e8f0', '& .MuiLinearProgress-bar': { bgcolor: '#08d84c' } }}
-                          />
-                        </Box>
-                        <Typography sx={{ fontSize: 12.5, fontWeight: 500, minWidth: 40, textAlign: 'right' }}>{`${Math.round(progressPct)}%`}</Typography>
-                      </Box>
-                    </TableCell>
-                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                      <Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                          <Tooltip
-                            title={(
-                              <Box sx={{ px: 0.5 }}>
-                                <Typography sx={{ fontWeight: 500, color: '#fff' }}>{budgetMeta?.tooltip?.title ?? ''}</Typography>
-                                {(budgetMeta?.tooltip?.lines || []).map((ln, i) => (
-                                  <Typography key={i} variant="caption" sx={{ display: 'block', color: '#fff' }}>{ln}</Typography>
-                                ))}
-                              </Box>
-                            )}
-                            arrow
-                            placement="top-start"
-                          >
-                            <IconButton
-                              size="small"
-                              onClick={(e) => e.stopPropagation()}
-                              aria-label="รายละเอียดงบ"
-                            >
-                              <InfoOutlineIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Typography sx={{ fontSize: 13, fontWeight: 500, color: budgetMeta?.usage?.color || 'inherit' }}>{budgetMeta?.usage?.label ?? '—'}</Typography>
-                          
-                        </Box>
-                      </Box>
-                    </TableCell>
-                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                      {r.dateRange || '-'}
-                    </TableCell>
-                    <TableCell sx={{ textAlign: 'center' }}>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          try {
-                            onGoWorkRow?.(r);
-                          } catch {
-                            // ignore
-                          }
-                        }}
-                        sx={{ textTransform: 'none', borderRadius: 2, boxShadow: 'none', fontWeight: 700 }}
-                      >
-                        เข้า Work
-                      </Button>
-                    </TableCell>
-
-                    <TableCell sx={{ textAlign: 'center' }}>
-                      <IconButton
-                        onClick={(e) => handleOpenMenu(e, r)}
-                        aria-label="เมนูเพิ่มเติม"
-                        aria-controls={menuAnchor ? 'ws-row-menu' : undefined}
-                        aria-haspopup="true"
-                      >
-                        <MoreHorizIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              );
+            })}
 
           <Menu
             id="ws-row-menu"
@@ -317,7 +337,7 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
                 handleCloseMenu();
               }}
             >
-              <EditIcon  fontSize="small" sx={{ mr: 1 }} /> แก้ไข
+              <EditIcon fontSize="small" sx={{ mr: 1 }} /> แก้ไข
             </MenuItem>
 
             <MenuItem
@@ -435,28 +455,16 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     }
   }, [onBack]);
 
-  const handleGoWorkClick = React.useCallback(() => {
-    const payload = {
-      toTab: 'work',
-      projectId: project?.id ?? null,
-      project: project || null,
-    };
-
-    try {
-      onGoWork?.(payload);
-    } catch {
-      try {
-        onGoWork?.();
-      } catch {
-        // ignore
-      }
-    }
-  }, [onGoWork, project]);
 
   const projectId = project?.id || null;
   const projectName = project?.name_th || project?.name || project?.name_en || '';
   const updatedAt = project?.updated_at || project?.created_at || project?.start_date || project?.start || '-';
   const budgetTotalNum = Number(project?.budget || 0);
+
+  const projectStartISO = project?.start_date || '';
+  const projectEndISO = project?.end_date || '';
+  const projectStartDay = React.useMemo(() => toDayjsDate(projectStartISO), [projectStartISO]);
+  const projectEndDay = React.useMemo(() => toDayjsDate(projectEndISO), [projectEndISO]);
 
   // ===== computed KPI state =====
   const [kpi, setKpi] = React.useState(() => ({
@@ -500,6 +508,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     open: false,
     mode: 'create',
     saving: false,
+    autoCalcDirty: false,
     form: {
       id: null,
       code: '',
@@ -507,9 +516,18 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       status: 'ยังไม่เริ่ม',
       start_date: '',
       end_date: '',
+      planned_hours: '',
       budget_amount: '',
     },
+    errors: {
+      start_date: '',
+      end_date: '',
+      planned_hours: '',
+    },
   }));
+
+  const workAutoCalcSeqRef = React.useRef(0);
+  const workInverseCalcSeqRef = React.useRef(0);
 
   // members bar state
   const [membersState, setMembersState] = React.useState(() => ({ loading: true, rows: [], error: null }));
@@ -548,7 +566,8 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       if (Number.isNaN(d.getTime())) return '';
       const dd = String(d.getDate()).padStart(2, '0');
       const mm = String(d.getMonth() + 1).padStart(2, '0');
-      return `${dd}/${mm}`;
+      const yyyy = String(d.getFullYear());
+      return `${dd}/${mm}/${yyyy}`;
     };
 
     const a = fmt(startISO);
@@ -576,7 +595,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         let budgetMeta = null;
         try {
           budgetMeta = Projects.getWorkstreamBudgetMeta ? Projects.getWorkstreamBudgetMeta(r) : null;
-        } catch  {
+        } catch {
           budgetMeta = null;
         }
 
@@ -589,6 +608,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
           usedBudget: Number(budgetMeta?.usedAmount ?? Number(r.spent_amount || 0)),
           totalBudget: Number(budgetMeta?.budgetAmount ?? Number(r.budget_amount || 0)),
           budgetMeta,
+          planned_hours: r?.planned_hours != null ? Number(r.planned_hours) : null,
           start_date: r.start_date || '',
           end_date: r.end_date || '',
           dateRange: fmtThaiRange(r.start_date, r.end_date),
@@ -639,7 +659,9 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       open: true,
       mode: 'create',
       saving: false,
-      form: { id: null, code: genWorkCode(), name: '', status: 'ยังไม่เริ่ม', start_date: '', end_date: '', budget_amount: '' },
+      autoCalcDirty: false,
+      form: { id: null, code: genWorkCode(), name: '', status: 'ยังไม่เริ่ม', start_date: '', end_date: '', planned_hours: '', budget_amount: '' },
+      errors: { start_date: '', end_date: '', planned_hours: '' },
     });
   }, []);
 
@@ -648,6 +670,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       open: true,
       mode: 'edit',
       saving: false,
+      autoCalcDirty: false,
       form: {
         id: row?.id || null,
         code: row?.code || '',
@@ -655,14 +678,147 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         status: row?.status || 'ยังไม่เริ่ม',
         start_date: row?.start_date || '',
         end_date: row?.end_date || '',
+        planned_hours: row?.planned_hours != null ? String(Number(row.planned_hours)) : '',
         budget_amount: row?.totalBudget != null ? String(Number(row.totalBudget || 0)) : '',
       },
+      errors: { start_date: '', end_date: '', planned_hours: '' },
     });
   }, []);
 
   const closeWorkDialog = React.useCallback(() => {
     setWorkDialog((prev) => ({ ...prev, open: false, saving: false }));
   }, []);
+
+  // auto-calc end_date when start_date or planned_hours changes
+  React.useEffect(() => {
+    let alive = true;
+
+    async function run() {
+      if (!workDialog.open) return;
+      if (!workDialog.autoCalcDirty) return;
+
+      const start_date = String(workDialog?.form?.start_date || '').trim();
+      const planned_hours = String(workDialog?.form?.planned_hours ?? '').trim();
+
+      const plannedHoursErr = validatePlannedHoursText(planned_hours);
+      if (plannedHoursErr) {
+        setWorkDialog((prev) => ({
+          ...prev,
+          errors: { ...(prev.errors || {}), planned_hours: plannedHoursErr },
+        }));
+        return;
+      }
+
+      const hoursNum = Number(planned_hours || 0);
+      if (!start_date || !Number.isFinite(hoursNum) || hoursNum <= 0) {
+        return;
+      }
+
+      const seq = (workAutoCalcSeqRef.current += 1);
+      const res = await Projects.calcEndDateFromPlannedHours({
+        supabase,
+        start_date,
+        planned_hours: hoursNum,
+        boundary_start: projectStartISO,
+        boundary_end: projectEndISO,
+      });
+
+      if (!alive) return;
+      if (seq !== workAutoCalcSeqRef.current) return;
+
+      const nextStart = res?.startISO || start_date;
+      const nextEnd = res?.endISO || '';
+
+      setWorkDialog((prev) => {
+        const prevForm = prev.form || {};
+        const prevErrors = prev.errors || {};
+
+        const nextForm = {
+          ...prevForm,
+          start_date: nextStart,
+          end_date: nextEnd,
+        };
+
+        let nextErrors = validateWorkDates({
+          startISO: nextForm.start_date,
+          endISO: nextForm.end_date,
+          projectStartISO,
+          projectEndISO,
+        });
+
+        // keep planned_hours error if present
+        nextErrors = { ...nextErrors, planned_hours: prevErrors.planned_hours || '' };
+
+        // if calc itself detected boundary issue, force error onto matching field
+        if (res?.error === 'START_BEFORE_BOUNDARY') nextErrors.start_date = 'วันที่เริ่มของ Work ต้องไม่ก่อนวันเริ่มของโครงการ';
+        if (res?.error === 'END_AFTER_BOUNDARY') nextErrors.end_date = 'วันที่สิ้นสุดของ Work ต้องไม่หลังวันสิ้นสุดของโครงการ';
+
+        return { ...prev, form: nextForm, errors: nextErrors };
+      });
+    }
+
+    run();
+    return () => {
+      alive = false;
+    };
+  }, [projectEndISO, projectStartISO, workDialog.autoCalcDirty, workDialog.form.planned_hours, workDialog.form.start_date, workDialog.open]);
+
+  // If user sets both start_date and end_date (and planned_hours is empty),
+  // compute planned_hours = workdays_between * 8 using calendar overrides.
+  React.useEffect(() => {
+    let alive = true;
+
+    async function runInv() {
+      if (!workDialog.open) return;
+
+      const start = String(workDialog?.form?.start_date || '').trim();
+      const end = String(workDialog?.form?.end_date || '').trim();
+      const planned = String(workDialog?.form?.planned_hours ?? '').trim();
+
+      if (!start || !end) return;
+      if (planned) return; // only compute when user hasn't provided hours
+
+      const seq = (workInverseCalcSeqRef.current += 1);
+
+      try {
+        const assignmentsMap = await Projects.fetchCalendarAssignmentsMap(supabase, start, end);
+
+        let cur = start;
+        let workdays = 0;
+        const maxIter = 2000;
+        let guard = 0;
+        while (cur) {
+          try {
+            if (Projects.isWorkday(cur, assignmentsMap)) workdays += 1;
+          } catch {
+            // ignore per-day errors
+          }
+
+          if (cur === end) break;
+          cur = dayjs(cur).add(1, 'day').format('YYYY-MM-DD');
+          guard += 1;
+          if (guard > maxIter) break;
+        }
+
+        if (!alive) return;
+        if (seq !== workInverseCalcSeqRef.current) return;
+
+        const hours = workdays * 8;
+        setWorkDialog((prev) => ({
+          ...prev,
+          form: { ...prev.form, planned_hours: hours ? String(hours) : '' },
+          errors: { ...(prev.errors || {}), planned_hours: '' },
+        }));
+      } catch {
+        // ignore failures silently (don't block user)
+      }
+    }
+
+    runInv();
+    return () => {
+      alive = false;
+    };
+  }, [workDialog.open, workDialog.form.start_date, workDialog.form.end_date, workDialog.form.planned_hours]);
 
   const saveWorkDialog = React.useCallback(async () => {
     if (!projectId) return;
@@ -677,16 +833,43 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       return;
     }
 
+    const plannedHoursErr = validatePlannedHoursText(form.planned_hours);
+    if (plannedHoursErr) {
+      setWorkDialog((prev) => ({ ...prev, errors: { ...(prev.errors || {}), planned_hours: plannedHoursErr } }));
+      return;
+    }
+
+    // validate dates against project range before saving
+    const dateErrors = validateWorkDates({ startISO: form.start_date, endISO: form.end_date, projectStartISO, projectEndISO });
+    if (dateErrors.start_date || dateErrors.end_date) {
+      setWorkDialog((prev) => ({ ...prev, errors: { ...(prev.errors || {}), ...dateErrors } }));
+      return;
+    }
+
+    const rangeRes = Projects.validateRangeWithinBoundary({
+      start_date: form.start_date,
+      end_date: form.end_date,
+      boundary_start: projectStartISO,
+      boundary_end: projectEndISO,
+    });
+
+    if (!rangeRes?.ok) {
+      window.alert(rangeRes?.messageTh || 'ช่วงวันที่ไม่ถูกต้อง');
+      return;
+    }
+
     setWorkDialog((prev) => ({ ...prev, saving: true }));
 
     try {
       const budget_amount = Number(form.budget_amount || 0);
+      const planned_hours_num = form.planned_hours === '' ? null : Number(form.planned_hours || 0);
       const payload = {
         code,
         name,
         status,
         start_date: form.start_date || null,
         end_date: form.end_date || null,
+        planned_hours: planned_hours_num === null ? null : (Number.isFinite(planned_hours_num) ? planned_hours_num : 0),
         budget_amount: Number.isFinite(budget_amount) ? budget_amount : 0,
       };
 
@@ -705,31 +888,39 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       window.alert(`บันทึกล้มเหลว: ${String(e?.message || e)}`);
       setWorkDialog((prev) => ({ ...prev, saving: false }));
     }
-  }, [closeWorkDialog, projectId, reloadWorkstreams, workDialog.form, workDialog.mode]);
+  }, [closeWorkDialog, projectEndISO, projectId, projectStartISO, reloadWorkstreams, workDialog.form, workDialog.mode]);
 
-  const handleDeleteWork = React.useCallback(
-    async (row) => {
-      const id = row?.id || null;
-      const label = row?.name || row?.code || '';
-      if (!id) return;
+  // Delete confirmation dialog state + handlers (matches provided pattern)
+  const [deleteDialog, setDeleteDialog] = React.useState(() => ({ open: false, deleting: false, target: null }));
 
-      const ok = window.confirm(`ต้องการลบ Work "${label}" ใช่หรือไม่?`);
-      if (!ok) return;
+  const handleDeleteWork = React.useCallback((row) => {
+    setDeleteDialog({ open: true, deleting: false, target: row || null });
+  }, []);
 
-      try {
-        const { error } = await supabase
-          .from('tpr_workstreams')
-          .update({ deleted: true, deleted_at: new Date().toISOString() })
-          .eq('id', id);
-        if (error) throw error;
-        await reloadWorkstreams();
-      } catch (e) {
-        console.error('deleteWork error:', e);
-        window.alert(`ลบไม่สำเร็จ: ${String(e?.message || e)}`);
-      }
-    },
-    [reloadWorkstreams]
-  );
+  const cancelDelete = React.useCallback(() => {
+    setDeleteDialog({ open: false, deleting: false, target: null });
+  }, []);
+
+  const confirmDelete = React.useCallback(async () => {
+    const row = deleteDialog.target || null;
+    const id = row?.id || null;
+    if (!id) return;
+
+    setDeleteDialog((prev) => ({ ...prev, deleting: true }));
+    try {
+      const { error } = await supabase
+        .from('tpr_workstreams')
+        .update({ deleted: true, deleted_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      setDeleteDialog({ open: false, deleting: false, target: null });
+      await reloadWorkstreams();
+    } catch (e) {
+      console.error('deleteWork error:', e);
+      window.alert(`ลบไม่สำเร็จ: ${String(e?.message || e)}`);
+      setDeleteDialog((prev) => ({ ...prev, deleting: false }));
+    }
+  }, [deleteDialog.target, reloadWorkstreams]);
 
   const handleOpenSubworksTab = React.useCallback(
     (row) => {
@@ -916,7 +1107,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     }
   }, [workLine]);
 
-  
+
 
   const wsCategories = React.useMemo(() => {
     try {
@@ -1036,6 +1227,8 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     fontWeight: 500,
   };
 
+  const flatBtnSx = { boxShadow: 'none', '&:hover': { boxShadow: 'none' } };
+
   if (!project) {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
@@ -1145,20 +1338,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               </IconButton>
             </Tooltip>
 
-            <Button
-              variant="contained"
-              startIcon={<CheckCircleRoundedIcon />}
-              onClick={handleGoWorkClick}
-              sx={{
-                ...actionBtnSx,
-                bgcolor: '#ff4059',
-                color: '#ffffff',
-                '&:hover': { bgcolor: '#e63a52', boxShadow: 'none' },
-                display: 'none',
-              }}
-            >
-              เข้า WORK
-            </Button>
+           
           </Stack>
         )}
       </Stack>
@@ -1261,12 +1441,12 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                   <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
                     ความคืบหน้า
                   </Typography>
-                      <Typography sx={{ fontSize: 26, fontWeight: 900, mt: 0.5, color: '#08d84c', lineHeight: 1.15 }}>
-                        {`${displayProgressPct}%`}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {`*${displayProgressDone}/${displayProgressTotal} Work`}
-                      </Typography>
+                  <Typography sx={{ fontSize: 26, fontWeight: 900, mt: 0.5, color: '#08d84c', lineHeight: 1.15 }}>
+                    {`${displayProgressPct}%`}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {`*${displayProgressDone}/${displayProgressTotal} Work`}
+                  </Typography>
                 </>
               )}
             </Box>
@@ -1274,7 +1454,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
             {kpi.loading ? (
               <Skeleton variant="rectangular" width={44} height={34} />
             ) : (
-                  <MiniBars variant="up" color="#08d84c" values={[displayProgressPct / 140, displayProgressPct / 115, displayProgressPct / 100]} height={34} />
+              <MiniBars variant="up" color="#08d84c" values={[displayProgressPct / 140, displayProgressPct / 115, displayProgressPct / 100]} height={34} />
             )}
           </Box>
         </Paper>
@@ -1294,12 +1474,12 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                   <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
                     WIP
                   </Typography>
-                    <Typography sx={{ fontSize: 26, fontWeight: 900, mt: 0.5, color: '#fdca01', lineHeight: 1.15 }}>
-                      {formatMoneyTHB(displayWipAmount)}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {Number(workSummary?.budgetTotal || 0) > 0 ? `*${displayWipPct}% ของงบ` : (displayWipAmount > 0 ? '*ต้องติดตาม' : '*—')}
-                    </Typography>
+                  <Typography sx={{ fontSize: 26, fontWeight: 900, mt: 0.5, color: '#fdca01', lineHeight: 1.15 }}>
+                    {formatMoneyTHB(displayWipAmount)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {Number(workSummary?.budgetTotal || 0) > 0 ? `*${displayWipPct}% ของงบ` : (displayWipAmount > 0 ? '*ต้องติดตาม' : '*—')}
+                  </Typography>
                 </>
               )}
             </Box>
@@ -1307,7 +1487,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
             {kpi.loading ? (
               <Skeleton variant="rectangular" width={44} height={34} />
             ) : (
-                <MiniBars variant="wave" color="#fdca01" values={[displayWipPct / 140, displayWipPct / 115, displayWipPct / 100]} height={34} />
+              <MiniBars variant="wave" color="#fdca01" values={[displayWipPct / 140, displayWipPct / 115, displayWipPct / 100]} height={34} />
             )}
           </Box>
         </Paper>
@@ -1359,15 +1539,15 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         {/* ซ้าย: เทียบความคืบหน้า vs งบที่ใช้ไป (ซ่อนไว้ชั่วคราว) */}
         {SHOW_PV ? (
           <Paper
-              elevation={0}
-              sx={{
-                ...kpiPaperSx,
-                flex: 1,
-                minWidth: 0,
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
+            elevation={0}
+            sx={{
+              ...kpiPaperSx,
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
             {kpi.loading ? (
               <>
                 <Skeleton variant="text" width={210} height={20} />
@@ -1412,17 +1592,16 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                 <Box sx={{ width: '100%', overflowX: 'hidden' }}>
                   <ReactApexChart options={pvOptions} series={pvSeries} type="bar" height={150} />
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
-                    
+
                   </Typography>
                 </Box>
 
                 <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1 }}>
                   <Typography variant="caption" color="text.secondary">
-                    {`ส่วนต่าง (ความคืบหน้า - งบที่ใช้ไป) ${
-                      Number.isFinite(Number(kpi.pv_deltaPct))
+                    {`ส่วนต่าง (ความคืบหน้า - งบที่ใช้ไป) ${Number.isFinite(Number(kpi.pv_deltaPct))
                         ? `${kpi.pv_deltaPct >= 0 ? '+' : ''}${kpi.pv_deltaPct}%`
                         : '—'
-                    }`}
+                      }`}
                   </Typography>
                   <Typography
                     sx={{
@@ -1546,8 +1725,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                   <TableCell><Skeleton variant="text" width={120} /></TableCell>
                   <TableCell><Skeleton variant="text" width={80} /></TableCell>
                   <TableCell><Skeleton variant="text" width={120} /></TableCell>
-                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}><Skeleton variant="text" width={90} /></TableCell>
-                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}><Skeleton variant="text" width={90} /></TableCell>
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' }, textAlign: 'center' }}><Skeleton variant="text" width={90} /></TableCell>
                   <TableCell sx={{ textAlign: 'center' }}><Skeleton variant="text" width={40} /></TableCell>
                 </TableRow>
               </TableHead>
@@ -1567,11 +1745,8 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                       <Skeleton variant="rounded" width={140} height={10} />
                       <Skeleton variant="text" width={40} />
                     </TableCell>
-                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' }, textAlign: 'center' }}>
                       <Skeleton variant="text" width={120} />
-                    </TableCell>
-                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                      <Skeleton variant="text" width={90} />
                     </TableCell>
                     <TableCell sx={{ textAlign: 'center' }}>
                       <Skeleton variant="text" width={40} />
@@ -1651,7 +1826,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         </Box>
       </Paper>
 
-        <Dialog open={workDialog.open} onClose={closeWorkDialog} fullWidth maxWidth="sm">
+      <Dialog open={workDialog.open} onClose={closeWorkDialog} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 900 }}>
           {workDialog.mode === 'edit' ? 'แก้ไข Work' : 'เพิ่ม Work'}
         </DialogTitle>
@@ -1659,6 +1834,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
           <Stack spacing={1.5} sx={{ mt: 1 }}>
             {workDialog.mode === 'create' ? (
               <TextField
+                sx={{display:'none'}}
                 size="small"
                 label="รหัส Work"
                 value={workDialog.form.code}
@@ -1678,6 +1854,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
             />
             {workDialog.mode === 'create' ? (
               <TextField
+                sx={{display:'none'}}
                 size="small"
                 select
                 label="สถานะ"
@@ -1697,20 +1874,72 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                 <DatePicker
                   label="วันที่เริ่ม"
                   value={workDialog.form.start_date ? dayjs(workDialog.form.start_date) : null}
-                  onChange={(v) => setWorkDialog((prev) => ({ ...prev, form: { ...prev.form, start_date: v ? (v.format ? v.format('YYYY-MM-DD') : String(v)) : '' } }))}
-                  slotProps={{ textField: { size: 'small' } }}
+                  minDate={projectStartDay || undefined}
+                  maxDate={projectEndDay || undefined}
+                  onChange={(v) =>
+                    setWorkDialog((prev) => {
+                      const start_date = v ? (v.format ? v.format('YYYY-MM-DD') : String(v)) : '';
+                      const nextForm = { ...prev.form, start_date };
+                      const nextErrors = validateWorkDates({ startISO: nextForm.start_date, endISO: nextForm.end_date, projectStartISO, projectEndISO });
+                      return { ...prev, autoCalcDirty: true, form: nextForm, errors: { ...(prev.errors || {}), ...nextErrors } };
+                    })
+                  }
+                  slotProps={{
+                    textField: {
+                      size: 'small',
+                      error: Boolean(workDialog?.errors?.start_date),
+                      helperText: workDialog?.errors?.start_date || '',
+                    },
+                  }}
                   sx={{ width: '100%' }}
                 />
                 <DatePicker
                   label="วันที่สิ้นสุด"
                   value={workDialog.form.end_date ? dayjs(workDialog.form.end_date) : null}
-                  onChange={(v) => setWorkDialog((prev) => ({ ...prev, form: { ...prev.form, end_date: v ? (v.format ? v.format('YYYY-MM-DD') : String(v)) : '' } }))}
-                  slotProps={{ textField: { size: 'small' } }}
+                  minDate={toDayjsDate(workDialog.form.start_date) || projectStartDay || undefined}
+                  maxDate={projectEndDay || undefined}
+                  onChange={(v) =>
+                    setWorkDialog((prev) => {
+                      const end_date = v ? (v.format ? v.format('YYYY-MM-DD') : String(v)) : '';
+                      const nextForm = { ...prev.form, end_date };
+                      const nextErrors = validateWorkDates({ startISO: nextForm.start_date, endISO: nextForm.end_date, projectStartISO, projectEndISO });
+                      return { ...prev, form: nextForm, errors: { ...(prev.errors || {}), ...nextErrors } };
+                    })
+                  }
+                  slotProps={{
+                    textField: {
+                      size: 'small',
+                      error: Boolean(workDialog?.errors?.end_date),
+                      helperText: workDialog?.errors?.end_date || '',
+                    },
+                  }}
                   sx={{ width: '100%' }}
                 />
               </Stack>
             </LocalizationProvider>
             <TextField
+              size="small"
+              label="ชั่วโมงที่วางแผน (ชั่วโมง)"
+              type="number"
+              value={workDialog.form.planned_hours}
+              onChange={(e) =>
+                setWorkDialog((prev) => {
+                  const planned_hours = e.target.value;
+                  const plannedErr = validatePlannedHoursText(planned_hours);
+                  return {
+                    ...prev,
+                    autoCalcDirty: true,
+                    form: { ...prev.form, planned_hours },
+                    errors: { ...(prev.errors || {}), planned_hours: plannedErr },
+                  };
+                })
+              }
+              error={Boolean(workDialog?.errors?.planned_hours)}
+              helperText={workDialog?.errors?.planned_hours || ''}
+              fullWidth
+            />
+            <TextField
+              sx={{display:'none'}}
               size="small"
               label="งบประมาณ"
               type="number"
@@ -1728,12 +1957,42 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
             variant="contained"
             color="primary"
             onClick={saveWorkDialog}
-            disabled={workDialog.saving}
+            disabled={
+              workDialog.saving ||
+              Boolean(workDialog?.errors?.start_date || workDialog?.errors?.end_date || workDialog?.errors?.planned_hours)
+            }
             sx={{ textTransform: 'none' }}
             startIcon={<SaveIcon />}
             size="medium"
           >
             บันทึก
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteDialog.open} onClose={cancelDelete} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>ยืนยันการลบ</DialogTitle>
+        <DialogContent>
+          <Typography>ลบ Work "{deleteDialog.target?.name || deleteDialog.target?.code || ''}" หรือไม่? (Work จะถูกซ่อนไว้)</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={cancelDelete}
+            disabled={deleteDialog.deleting}
+            sx={{ color: 'common.black', ...flatBtnSx }}
+            disableElevation
+          >
+            ยกเลิก
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={confirmDelete}
+            disabled={deleteDialog.deleting}
+            sx={flatBtnSx}
+            disableElevation
+          >
+            {deleteDialog.deleting ? 'กำลังลบ...' : 'ลบ'}
           </Button>
         </DialogActions>
       </Dialog>

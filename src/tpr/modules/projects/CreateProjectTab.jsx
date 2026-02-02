@@ -205,6 +205,7 @@ export default function CreateProjectTab(props) {
     dialogForm?.project_team_ids,
     dialogForm?.team_ids,
     dialogForm?.members,
+    dialogForm,
   ]);
 
   React.useEffect(() => {
@@ -339,23 +340,32 @@ export default function CreateProjectTab(props) {
           })()
         : `เลือกแล้ว ${teamCount} คน`;
 
-  const normalize = (s) => String(s || '').toLowerCase();
-  const filterEmployees = (list, q) => {
-    const qq = normalize(q).trim();
-    const arr = Array.isArray(list) ? list : [];
-    if (!qq) return arr;
-    return arr.filter((emp) => {
-      const th = `${emp.title_th ? emp.title_th + ' ' : ''}${emp.first_name_th || ''} ${emp.last_name_th || ''}`.trim();
-      const en = `${emp.first_name_en || ''} ${emp.last_name_en || ''}`.trim();
-      const code = String(emp.employee_code || '');
-      const email = String(emp.email || '');
-      const blob = [th, en, code, email, emp.id].filter(Boolean).join(' ').toLowerCase();
-      return blob.includes(qq);
-    });
-  };
+  const normalize = React.useCallback((s) => String(s || '').toLowerCase(), []);
+  const filterEmployees = React.useCallback(
+    (list, q) => {
+      const qq = normalize(q).trim();
+      const arr = Array.isArray(list) ? list : [];
+      if (!qq) return arr;
+      return arr.filter((emp) => {
+        const th = `${emp.title_th ? emp.title_th + ' ' : ''}${emp.first_name_th || ''} ${emp.last_name_th || ''}`.trim();
+        const en = `${emp.first_name_en || ''} ${emp.last_name_en || ''}`.trim();
+        const code = String(emp.employee_code || '');
+        const email = String(emp.email || '');
+        const blob = [th, en, code, email, emp.id].filter(Boolean).join(' ').toLowerCase();
+        return blob.includes(qq);
+      });
+    },
+    [normalize]
+  );
 
-  const filteredTeamEmployees = React.useMemo(() => filterEmployees(employees, teamSearch), [employees, teamSearch]);
-  const filteredPmEmployees = React.useMemo(() => filterEmployees(employees, employeeSearch), [employees, employeeSearch]);
+  const filteredTeamEmployees = React.useMemo(
+    () => filterEmployees(employees, teamSearch),
+    [employees, teamSearch, filterEmployees]
+  );
+  const filteredPmEmployees = React.useMemo(
+    () => filterEmployees(employees, employeeSearch),
+    [employees, employeeSearch, filterEmployees]
+  );
 
   const filteredCustomers = React.useMemo(() => {
     const q = normalize(customerSearch).trim();
@@ -365,7 +375,7 @@ export default function CreateProjectTab(props) {
       const blob = [c.name_th, c.name_en, c.customer_id, c.id].filter(Boolean).join(' ').toLowerCase();
       return blob.includes(q);
     });
-  }, [customers, customerSearch]);
+  }, [customers, customerSearch, normalize]);
 
   const handleSaveClick = async () => {
     if (!supabase) return notify.error('ไม่พบ supabase client (props.supabase)');
@@ -391,7 +401,14 @@ export default function CreateProjectTab(props) {
     if (!dialogForm?.project_admin_id && !dialogForm?.principal_id) localErrors.project_admin_id = 'กรุณาเลือก Project Admin';
     if (!Array.isArray(syncedPm) || syncedPm.length < 1) localErrors.project_manager_ids = 'กรุณาเลือก Project Manager อย่างน้อย 1 คน';
 
-    const budgetNum = Number(String(dialogForm?.budget ?? '').replace(/,/g, ''));
+    // ✅ budget validation (same rule asเดิม: ต้อง > 0) แต่ดึงจาก 3 ช่องใหม่
+    const serviceBudgetNum = Number(String(dialogForm?.service_budget ?? '').replace(/,/g, ''));
+    const operatingBudgetNum = Number(String(dialogForm?.operating_budget ?? '').replace(/,/g, ''));
+    const adminBudgetNum = Number(String(dialogForm?.admin_budget ?? '').replace(/,/g, ''));
+    const budgetNum =
+      (Number.isFinite(serviceBudgetNum) ? serviceBudgetNum : 0) +
+      (Number.isFinite(operatingBudgetNum) ? operatingBudgetNum : 0) +
+      (Number.isFinite(adminBudgetNum) ? adminBudgetNum : 0);
     if (!Number.isFinite(budgetNum) || budgetNum <= 0) localErrors.budget = 'กรุณากรอกงบประมาณให้ถูกต้อง';
 
     if (!String(dialogForm?.start || '').trim()) localErrors.start = 'กรุณาเลือกวันที่เริ่มโครงการ';
@@ -422,6 +439,12 @@ export default function CreateProjectTab(props) {
       contract_type: dialogForm?.contract_type || 'Fixed Fee',
       project_type: dialogForm?.project_type || (dialogForm?.contract_type || 'Fixed Fee'),
 
+      // budgets (split into 3 parts; total budget is computed by DB trigger)
+      service_budget: dialogForm?.service_budget ?? 0,
+      operating_budget: dialogForm?.operating_budget ?? 0,
+      admin_budget: dialogForm?.admin_budget ?? 0,
+
+      // keep legacy field for backward compat (not used for validation)
       budget: dialogForm?.budget ?? '',
 
       customer_id: dialogForm?.customer_id || null,
@@ -641,119 +664,148 @@ export default function CreateProjectTab(props) {
             />
           </Box>
 
-          {/* radio แบบ custom + สีสุ่ม */}
-          <Box sx={{ mt: 2 }}>
-            <Typography sx={{ fontWeight: 700, mb: 1 }}>ประเภทโครงการ</Typography>
-            <FormControl sx={radioSx} component="fieldset">
-              <RadioGroup
-                row
-                value={contractValue}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  handleDialogChange('contract_type', v);
-                  handleDialogChange('project_type', v);
-                }}
-                sx={{ mt: 0.5, gap: 2, flexWrap: 'wrap' }}
-              >
-                <FormControlLabel
-                  value="Fixed Fee"
-                  control={<RadioFixedFee />}
-                  label="Fixed Fee"
-                  sx={contractValue === 'Fixed Fee' ? { color: contractColorMap['Fixed Fee'] } : null}
-                />
-                <FormControlLabel
-                  value="T&M"
-                  control={<RadioTM />}
-                  label="T&M"
-                  sx={contractValue === 'T&M' ? { color: contractColorMap['T&M'] } : null}
-                />
-                <FormControlLabel
-                  value="Retainer"
-                  control={<RadioRetainer />}
-                  label="Retainer"
-                  sx={contractValue === 'Retainer' ? { color: contractColorMap['Retainer'] } : null}
-                />
-                <FormControlLabel
-                  value="Internal"
-                  control={<RadioInternal />}
-                  label="Internal"
-                  sx={contractValue === 'Internal' ? { color: contractColorMap['Internal'] } : null}
-                />
-              </RadioGroup>
-            </FormControl>
-          </Box>
-        </Box>
+          {/* ประเภทโครงการ + ความรับผิดชอบ (ซ้าย-ขวา 50/50) */}
+          <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+            {/* ซ้าย: ประเภทโครงการ */}
+            <Box>
+              <Typography sx={{ fontWeight: 700, mb: 1 }}>ประเภทโครงการ</Typography>
+              <FormControl sx={radioSx} component="fieldset">
+                <RadioGroup
+                  row
+                  value={contractValue}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    handleDialogChange('contract_type', v);
+                    handleDialogChange('project_type', v);
+                  }}
+                  sx={{ mt: 0.5, gap: 2, flexWrap: 'wrap' }}
+                >
+                  <FormControlLabel
+                    value="Fixed Fee"
+                    control={<RadioFixedFee />}
+                    label="Fixed Fee"
+                    sx={contractValue === 'Fixed Fee' ? { color: contractColorMap['Fixed Fee'] } : null}
+                  />
+                  <FormControlLabel
+                    value="T&M"
+                    control={<RadioTM />}
+                    label="T&M"
+                    sx={contractValue === 'T&M' ? { color: contractColorMap['T&M'] } : null}
+                  />
+                  <FormControlLabel
+                    value="Retainer"
+                    control={<RadioRetainer />}
+                    label="Retainer"
+                    sx={contractValue === 'Retainer' ? { color: contractColorMap['Retainer'] } : null}
+                  />
+                  <FormControlLabel
+                    value="Internal"
+                    control={<RadioInternal />}
+                    label="Internal"
+                    sx={contractValue === 'Internal' ? { color: contractColorMap['Internal'] } : null}
+                  />
+                </RadioGroup>
+              </FormControl>
+            </Box>
 
-        <Box sx={{ px: 2, pb: 2 }}>
-          <Typography sx={{ fontWeight: 700, mb: 1 }}>ความรับผิดชอบ</Typography>
+            {/* ขวา: ความรับผิดชอบ */}
+            <Box>
+              <Typography sx={{ fontWeight: 700, mb: 1 }}>ความรับผิดชอบ</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+                <TextField
+                  label="Project Admin *"
+                  size="small"
+                  fullWidth
+                  value={projectAdminDisplay}
+                  InputProps={{
+                    readOnly: true,
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setEmployeePickerTarget('project_admin');
+                            setEmployeeDialogOpen(true);
+                            setEmployeeSearch('');
+                          }}
+                          sx={flatIconBtnSx}
+                        >
+                          <SearchRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-            <TextField
-              label="Project Admin *"
-              size="small"
-              fullWidth
-              value={projectAdminDisplay}
-              InputProps={{
-                readOnly: true,
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        setEmployeePickerTarget('project_admin');
-                        setEmployeeDialogOpen(true);
-                        setEmployeeSearch('');
-                      }}
-                      sx={flatIconBtnSx}
-                    >
-                      <SearchRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-
-            <TextField
-              label="Project Manager *"
-              size="small"
-              fullWidth
-              value={pmDisplay}
-              InputProps={{
-                readOnly: true,
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        setPmDialogOpen(true);
-                        setEmployeeSearch('');
-                      }}
-                      sx={flatIconBtnSx}
-                    >
-                      <SearchRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
+                <TextField
+                  label="Project Manager *"
+                  size="small"
+                  fullWidth
+                  value={pmDisplay}
+                  InputProps={{
+                    readOnly: true,
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setPmDialogOpen(true);
+                            setEmployeeSearch('');
+                          }}
+                          sx={flatIconBtnSx}
+                        >
+                          <SearchRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Box>
+            </Box>
           </Box>
         </Box>
 
         <Box sx={{ px: 2, pb: 2 }}>
           <Typography sx={{ fontWeight: 700, mb: 1 }}>งบประมาณ</Typography>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2 }}>
             <TextField
-              label="งบประมาณ *"
+              label="ค่าบริการ *"
               size="small"
               fullWidth
               type="number"
-              value={dialogForm?.budget || ''}
-              onChange={(e) => handleDialogChange('budget', e.target.value)}
-              inputProps={{ step: '0.01', min: 0 }}
+              value={dialogForm?.service_budget ?? 0}
+              onChange={(e) => handleDialogChange('service_budget', e.target.value)}
+              inputProps={{ step: '0.01', min: 0, style: { textAlign: 'right' } }}
             />
 
-            <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="th">
+            <TextField
+              label="ค่าดำเนินการ *"
+              size="small"
+              fullWidth
+              type="number"
+              value={dialogForm?.operating_budget ?? 0}
+              onChange={(e) => handleDialogChange('operating_budget', e.target.value)}
+              inputProps={{ step: '0.01', min: 0, style: { textAlign: 'right' } }}
+            />
+
+            <TextField
+              label="ค่าบริหาร *"
+              size="small"
+              fullWidth
+              type="number"
+              value={dialogForm?.admin_budget ?? 0}
+              onChange={(e) => handleDialogChange('admin_budget', e.target.value)}
+              inputProps={{ step: '0.01', min: 0, style: { textAlign: 'right' } }}
+            />
+          </Box>
+        </Box>
+
+        <Box sx={{ px: 2, pb: 2 }}>
+          <Typography sx={{ fontWeight: 700, mb: 1 }}>วันที่โครงการ</Typography>
+
+          <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="th">
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
               <DatePicker
                 value={dialogForm?.start ? dayjs(dialogForm.start) : null}
                 onChange={(v) => handleDialogChange('start', v ? v.format('YYYY-MM-DD') : '')}
@@ -765,8 +817,20 @@ export default function CreateProjectTab(props) {
                   },
                 }}
               />
-            </LocalizationProvider>
-          </Box>
+
+              <DatePicker
+                value={dialogForm?.end ? dayjs(dialogForm.end) : null}
+                onChange={(v) => handleDialogChange('end', v ? v.format('YYYY-MM-DD') : '')}
+                slotProps={{
+                  textField: {
+                    label: 'วันที่สิ้นสุดโครงการ',
+                    size: 'small',
+                    fullWidth: true,
+                  },
+                }}
+              />
+            </Box>
+          </LocalizationProvider>
         </Box>
 
         <Box sx={{ px: 2, pb: 2 }}>

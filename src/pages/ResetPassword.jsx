@@ -21,12 +21,12 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { useNotify } from "@/tpr/contexts/notifyContext";
 
 // ✅ ใช้ layout/asset เดียวกับหน้า Login ล่าสุด
-import heroImg from "@/assets/auth-img.webp";
+import heroImg from "@/assets/auth-img.png";
 import smile from "@/assets/emoji-smile.gif";
 
 function ResetPasswordSkeleton({ isMdDown, isSmall }) {
   return (
-    <Box
+   <Box
       component="main"
       sx={{
         position: "fixed",
@@ -44,13 +44,12 @@ function ResetPasswordSkeleton({ isMdDown, isSmall }) {
           borderRadius: 2,
           overflow: "hidden",
           bgcolor: "#fff",
-          border: "1px solid rgba(53, 53, 53, 0.08)",
         }}
       >
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            gridTemplateColumns: isMdDown ? "1fr" : "1fr 1fr",
             minHeight: isMdDown ? "unset" : 560,
           }}
         >
@@ -180,12 +179,12 @@ export default function ResetPassword() {
   };
 
   return (
-    <Box
+   <Box
       component="main"
       sx={{
         position: "fixed",
         inset: 0,
-        bgcolor: "#ffffff",
+        bgcolor: "#ffffff", // ✅ พื้นหลังขาว
         display: "grid",
         placeItems: "center",
         px: 2,
@@ -198,13 +197,13 @@ export default function ResetPassword() {
           borderRadius: 2,
           overflow: "hidden",
           bgcolor: "#fff",
-          border: "1px solid rgba(53, 53, 53, 0.08)",
         }}
       >
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            // ✅ ฝั่งขวากว้างกว่าฝั่งซ้าย
+            gridTemplateColumns: isMdDown ? "1fr" : "1fr 1fr",
             minHeight: isMdDown ? "unset" : 560,
           }}
         >
@@ -229,20 +228,6 @@ export default function ResetPassword() {
                 }}
               />
 
-              <Box sx={{ position: "relative", zIndex: 1, height: "100%", display: "flex", flexDirection: "column" }}>
-                <Box sx={{ flex: 1 }} />
-                <Typography
-                  sx={{
-                    opacity: 0.75,
-                    fontSize: 12,
-                    color: "rgba(15,23,42,0.75)",
-                    fontFamily: "Kanit",
-                    textAlign: "center",
-                  }}
-                >
-                  เวอร์ชัน 1.0.0 Beta
-                </Typography>
-              </Box>
             </Box>
           )}
 

@@ -26,7 +26,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useNotify } from "@/tpr/contexts/notifyContext";
 
 // ✅ ภาพและอีโมจิเดียวกับหน้า Login (ตามฐานล่าสุด)
-import heroImg from "@/assets/auth-img.webp";
+import heroImg from "@/assets/auth-img.png";
 import smile from "@/assets/emoji-smile.gif";
 
 function RegisterSkeleton({ isMdDown, isSmall }) {
@@ -49,13 +49,12 @@ function RegisterSkeleton({ isMdDown, isSmall }) {
           borderRadius: 2,
           overflow: "hidden",
           bgcolor: "#fff",
-          border: "1px solid rgba(53, 53, 53, 0.08)",
         }}
       >
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            gridTemplateColumns: isMdDown ? "1fr" : "1fr 1fr",
             minHeight: isMdDown ? "unset" : 560,
           }}
         >
@@ -275,7 +274,7 @@ export default function Register() {
       sx={{
         position: "fixed",
         inset: 0,
-        bgcolor: "#ffffff",
+        bgcolor: "#ffffff", // ✅ พื้นหลังขาว
         display: "grid",
         placeItems: "center",
         px: 2,
@@ -288,13 +287,13 @@ export default function Register() {
           borderRadius: 2,
           overflow: "hidden",
           bgcolor: "#fff",
-          border: "1px solid rgba(53, 53, 53, 0.08)",
         }}
       >
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            // ✅ ฝั่งขวากว้างกว่าฝั่งซ้าย
+            gridTemplateColumns: isMdDown ? "1fr" : "1fr 1fr",
             minHeight: isMdDown ? "unset" : 560,
           }}
         >
@@ -326,21 +325,7 @@ export default function Register() {
                 }}
               />
 
-              <Box sx={{ position: "relative", zIndex: 1, height: "100%", display: "flex", flexDirection: "column" }}>
-                <Box sx={{ flex: 1 }} />
-
-                <Typography
-                  sx={{
-                    opacity: 0.75,
-                    fontSize: 12,
-                    color: "rgba(15,23,42,0.75)",
-                    fontFamily: "Kanit",
-                    textAlign: "center",
-                  }}
-                >
-                  เวอร์ชัน 1.0.0 Beta
-                </Typography>
-              </Box>
+          
             </Box>
           )}
 
@@ -505,6 +490,7 @@ export default function Register() {
                   <Typography sx={{ color: "text.secondary", fontSize: 12, fontFamily: "Kanit" }}>
                     * หลังลงทะเบียน กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ
                   </Typography>
+                  
                 </Stack>
               </Box>
             </Box>

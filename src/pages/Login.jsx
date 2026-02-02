@@ -27,7 +27,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useNotify } from "@/tpr/contexts/notifyContext";
 
 // ✅ ภาพฝั่งซ้าย
-import heroImg from "@/assets/auth-img.webp";
+import heroImg from "@/assets/auth-img.png";
 import smile from "@/assets/emoji-smile.gif";
 
 function LoginSkeleton({ isMdDown, isSmall }) {
@@ -50,13 +50,12 @@ function LoginSkeleton({ isMdDown, isSmall }) {
           borderRadius: 2,
           overflow: "hidden",
           bgcolor: "#fff",
-          border: "1px solid rgba(53, 53, 53, 0.08)",
         }}
       >
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            gridTemplateColumns: isMdDown ? "1fr" : "1fr 1fr",
             minHeight: isMdDown ? "unset" : 560,
           }}
         >
@@ -367,14 +366,13 @@ export default function Login() {
           borderRadius: 2,
           overflow: "hidden",
           bgcolor: "#fff",
-          border: "1px solid rgba(53, 53, 53, 0.08)", // ✅ border บาง ๆ
         }}
       >
         <Box
           sx={{
             display: "grid",
             // ✅ ฝั่งขวากว้างกว่าฝั่งซ้าย
-            gridTemplateColumns: isMdDown ? "1fr" : "0.9fr 1.1fr",
+            gridTemplateColumns: isMdDown ? "1fr" : "1fr 1.1fr",
             minHeight: isMdDown ? "unset" : 560,
           }}
         >
@@ -422,9 +420,7 @@ export default function Login() {
                   </Box>
                 </Box>
 
-                <Typography sx={{ opacity: 0.75, fontSize: 12, color: "rgba(15,23,42,0.75)", fontFamily: "Kanit", textAlign: "center" }}>
-                  เวอร์ชัน 1.0.0 Beta
-                </Typography>
+                
               </Box>
             </Box>
           )}
@@ -567,6 +563,7 @@ export default function Login() {
                   <Typography sx={{ color: "text.secondary", fontSize: 12, fontFamily: "Kanit" }}>
                     * หากเข้าสู่ระบบไม่ได้ กรุณาตรวจสอบการยืนยันอีเมล หรือ ติดต่อผู้ดูแลระบบ
                   </Typography>
+                  
                 </Stack>
               </Box>
             </Box>

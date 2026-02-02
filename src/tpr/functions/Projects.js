@@ -139,6 +139,33 @@ function clampPct(v) {
   return Math.max(0, Math.min(100, x));
 }
 
+// ===== Workday / Calendar helpers (shared business logic; no UI) =====
+function addDaysISO(dateISO, deltaDays) {
+  const iso = normalizeDateISO(dateISO);
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + Number(deltaDays || 0));
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+function compareISODate(aISO, bISO) {
+  const a = normalizeDateISO(aISO);
+  const b = normalizeDateISO(bISO);
+  if (!a || !b) return null;
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+function toAssignmentDayType(v) {
+  const s = String(v || '').trim().toLowerCase();
+  if (s === 'work' || s === 'weekend' || s === 'holiday' || s === 'annual') return s;
+  return null;
+}
+
 /* ===========================
    Workstream auto-create
    =========================== */
@@ -257,6 +284,11 @@ const Projects = {
     contract_type: CONTRACT_TYPES.FIXED_FEE,
     project_type: CONTRACT_TYPES.FIXED_FEE,
 
+    // budgets (split into 3 parts; DB trigger will compute total budget)
+    service_budget: 0,
+    operating_budget: 0,
+    admin_budget: 0,
+
     budget: '',
 
     // system
@@ -297,12 +329,21 @@ const Projects = {
       errors.initial_team_ids = 'กรุณาเลือกทีมเริ่มต้นอย่างน้อย 1 คน';
     }
 
-    // ✅ budget ต้อง > 0
-    const budget = parseBudgetNumber(form?.budget);
-    if (form?.budget === '' || form?.budget === null || form?.budget === undefined) {
-      errors.budget = 'กรุณากรอกงบประมาณ';
-    } else if (!Number.isFinite(budget) || budget <= 0) {
-      errors.budget = 'งบประมาณไม่ถูกต้อง';
+    // ✅ budgets (split): each must be >= 0, and total must be > 0
+    const service_budget = parseBudgetNumber(form?.service_budget);
+    const operating_budget = parseBudgetNumber(form?.operating_budget);
+    const admin_budget = parseBudgetNumber(form?.admin_budget);
+
+    if (!Number.isFinite(service_budget) || service_budget < 0) errors.service_budget = 'งบค่าบริการไม่ถูกต้อง';
+    if (!Number.isFinite(operating_budget) || operating_budget < 0) errors.operating_budget = 'งบค่าดำเนินการไม่ถูกต้อง';
+    if (!Number.isFinite(admin_budget) || admin_budget < 0) errors.admin_budget = 'งบค่าบริหารไม่ถูกต้อง';
+
+    const totalBudgetParts = (Number.isFinite(service_budget) ? service_budget : 0) +
+      (Number.isFinite(operating_budget) ? operating_budget : 0) +
+      (Number.isFinite(admin_budget) ? admin_budget : 0);
+    if (totalBudgetParts <= 0) {
+      // keep key `budget` for UI compatibility (old screens may show budget error)
+      errors.budget = 'งบรวมต้องมากกว่า 0';
     }
 
     const ctype = normalizeContractType(form?.contract_type || form?.project_type);
@@ -322,7 +363,10 @@ const Projects = {
         name_en: cleanText(form?.name_en, 400),
         start,
         end: normalizeDateISO(form?.end),
-        budget,
+        // split budgets (DB trigger will compute total budget)
+        service_budget,
+        operating_budget,
+        admin_budget,
         contract_type: ctype,
         project_type: ctype,
 
@@ -377,7 +421,10 @@ const Projects = {
       contract_type: normalizeContractType(f.contract_type),
       project_type: normalizeContractType(f.project_type),
 
-      budget: parseBudgetNumber(f.budget),
+      // budgets (split; total budget is synced by DB trigger)
+      service_budget: parseBudgetNumber(f.service_budget),
+      operating_budget: parseBudgetNumber(f.operating_budget),
+      admin_budget: parseBudgetNumber(f.admin_budget),
 
       status: cleanText(f.status, 64) || 'Planning',
       image_path: f.image_path ? String(f.image_path).trim() : null,
@@ -524,6 +571,12 @@ const Projects = {
       contract_type: normalizeContractType(row.contract_type ?? row.project_type),
       project_type: normalizeContractType(row.project_type ?? row.contract_type),
 
+      // budgets (split)
+      service_budget: row.service_budget ?? 0,
+      operating_budget: row.operating_budget ?? 0,
+      admin_budget: row.admin_budget ?? 0,
+
+      // keep for backward compat in UI; DB trigger controls total
       budget: row.budget ?? 0,
       status: row.status ?? 'Planning',
       parent_project_id: row.parent_project_id ?? 'MAIN',
@@ -535,6 +588,157 @@ const Projects = {
 
   formatTypeLabel: (type) => normalizeContractType(type),
   formatMoneyTHB,
+
+  // =========================
+  // Workdays / Calendar (shared logic)
+  // =========================
+
+  // 1) true if Sat/Sun
+  isWeekend: (dateISO) => {
+    const iso = normalizeDateISO(dateISO);
+    if (!iso) return false;
+    const d = new Date(`${iso}T00:00:00Z`);
+    const dow = d.getUTCDay();
+    return dow === 0 || dow === 6;
+  },
+
+  // 2) Fetch assignments in range; no calendar_id filter
+  fetchCalendarAssignmentsMap: async (supabase, startISO, endISO) => {
+    if (!supabase) throw new Error('SUPABASE_CLIENT_REQUIRED');
+    const start = normalizeDateISO(startISO);
+    const end = normalizeDateISO(endISO);
+    if (!start || !end) return {};
+
+    const { data, error } = await supabase
+      .from('calendar_assignments')
+      .select('assigned_date, day_type')
+      .gte('assigned_date', start)
+      .lte('assigned_date', end);
+
+    if (error) throw error;
+
+    const map = {};
+    for (const r of data || []) {
+      const dISO = normalizeDateISO(r?.assigned_date);
+      const t = toAssignmentDayType(r?.day_type);
+      if (!dISO || !t) continue;
+      map[dISO] = t;
+    }
+    return map;
+  },
+
+  // 3) Workday: assignments override else default Mon-Fri
+  isWorkday: (dateISO, assignmentsMap = {}) => {
+    const iso = normalizeDateISO(dateISO);
+    if (!iso) return false;
+
+    const t = assignmentsMap && typeof assignmentsMap === 'object' ? assignmentsMap[iso] : null;
+    if (t) {
+      if (t === 'work') return true;
+      if (t === 'weekend' || t === 'holiday' || t === 'annual') return false;
+    }
+
+    return !Projects.isWeekend(iso);
+  },
+
+  // 4) Move forward until workday
+  nextWorkday: (dateISO, assignmentsMap = {}) => {
+    let iso = normalizeDateISO(dateISO);
+    if (!iso) return '';
+
+    let guard = 0;
+    while (!Projects.isWorkday(iso, assignmentsMap)) {
+      const next = addDaysISO(iso, 1);
+      if (!next) return '';
+      iso = next;
+      guard += 1;
+      if (guard > 4000) return '';
+    }
+    return iso;
+  },
+
+  // 5) Add N workdays, inclusive of start date
+  addWorkdays: ({ startISO, workdays, assignmentsMap = {} }) => {
+    const start = normalizeDateISO(startISO);
+    const n = Math.ceil(Number(workdays || 0));
+    if (!start || !Number.isFinite(n) || n <= 0) return '';
+    if (!Projects.isWorkday(start, assignmentsMap)) throw new Error('START_IS_NOT_WORKDAY');
+
+    let iso = start;
+    let counted = 1;
+    let guard = 0;
+    while (counted < n) {
+      const next = addDaysISO(iso, 1);
+      if (!next) return '';
+      iso = next;
+      if (Projects.isWorkday(iso, assignmentsMap)) counted += 1;
+      guard += 1;
+      if (guard > 6000) return '';
+    }
+    return iso;
+  },
+
+  // 6) Compute end date from start + planned_hours using workdays (8h/day)
+  calcEndDateFromPlannedHours: async ({ supabase, start_date, planned_hours, boundary_start, boundary_end }) => {
+    const startRaw = normalizeDateISO(start_date);
+    const hours = Number(planned_hours || 0);
+
+    if (!startRaw || !Number.isFinite(hours) || hours <= 0) {
+      return { startISO: '', endISO: '', workdaysNeeded: 0, error: null };
+    }
+
+    const workHoursPerDay = 8;
+    const workdaysNeeded = Math.ceil(hours / workHoursPerDay);
+
+    const bStart = normalizeDateISO(boundary_start);
+    const bEnd = normalizeDateISO(boundary_end);
+
+    // Prepare range to fetch calendar assignments once
+    const defaultEndRange = addDaysISO(startRaw, 370);
+    let endRange = defaultEndRange;
+    if (bEnd && endRange && compareISODate(endRange, bEnd) === 1) endRange = bEnd;
+
+    const assignmentsMap = await Projects.fetchCalendarAssignmentsMap(supabase, startRaw, endRange || startRaw);
+
+    // Adjust start to next workday if needed
+    const startISO = Projects.isWorkday(startRaw, assignmentsMap)
+      ? startRaw
+      : Projects.nextWorkday(startRaw, assignmentsMap);
+
+    if (!startISO) {
+      return { startISO: '', endISO: '', workdaysNeeded: 0, error: null };
+    }
+
+    const endISO = Projects.addWorkdays({ startISO, workdays: workdaysNeeded, assignmentsMap });
+
+    let error = null;
+    if (bStart && compareISODate(startISO, bStart) === -1) error = 'START_BEFORE_BOUNDARY';
+    if (!error && bEnd && endISO && compareISODate(endISO, bEnd) === 1) error = 'END_AFTER_BOUNDARY';
+
+    return { startISO, endISO: endISO || '', workdaysNeeded, error };
+  },
+
+  // 7) Validate start/end within boundary (with Thai messages)
+  validateRangeWithinBoundary: ({ start_date, end_date, boundary_start, boundary_end }) => {
+    const start = normalizeDateISO(start_date);
+    const end = normalizeDateISO(end_date);
+    const bStart = normalizeDateISO(boundary_start);
+    const bEnd = normalizeDateISO(boundary_end);
+
+    if (start && end && compareISODate(end, start) === -1) {
+      return { ok: false, errorKey: 'END_BEFORE_START', messageTh: 'วันที่สิ้นสุดต้องไม่น้อยกว่าวันที่เริ่ม' };
+    }
+
+    if (bStart && start && compareISODate(start, bStart) === -1) {
+      return { ok: false, errorKey: 'START_BEFORE_BOUNDARY', messageTh: 'วันที่เริ่มของ Work ต้องไม่ก่อนวันเริ่มของโครงการ' };
+    }
+
+    if (bEnd && end && compareISODate(end, bEnd) === 1) {
+      return { ok: false, errorKey: 'END_AFTER_BOUNDARY', messageTh: 'วันที่สิ้นสุดของ Work ต้องไม่หลังวันสิ้นสุดของโครงการ' };
+    }
+
+    return { ok: true, errorKey: null, messageTh: null };
+  },
 
   // ---------- Supabase helpers ----------
   create: async (supabase, dbPayload) => {
@@ -1142,8 +1346,7 @@ const Projects = {
     });
 
     const seriesData = rows.map((r) => {
-      let p = toNum(r?.progress || 0);
-      if (p <= 1) p = p * 100;
+      const p = toNum(r?.progress || 0);
       return clampPct(p);
     });
 
@@ -1385,10 +1588,8 @@ const Projects = {
     const usedAmount = toNum(row?.spent_amount ?? row?.usedAmount ?? row?.usedBudget ?? 0);
     const budgetAmount = toNum(row?.budget_amount ?? row?.budget ?? row?.totalBudget ?? 0);
 
-    // normalize progress (support 0..1 and 0..100)
-    let raw = toNum(row?.progress ?? row?.progressPct ?? 0);
-    let progressPct = raw <= 1 ? raw * 100 : raw;
-    progressPct = clampPct(progressPct);
+    // progress is taken directly from DB as 0..100
+    let progressPct = clampPct(toNum(row?.progress ?? row?.progressPct ?? 0));
 
     const usedPct = budgetAmount > 0 ? clampPct((usedAmount / budgetAmount) * 100) : 0;
     const gapPct = Math.round(progressPct - usedPct);
