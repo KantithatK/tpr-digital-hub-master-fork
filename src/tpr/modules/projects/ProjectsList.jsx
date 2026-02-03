@@ -717,7 +717,7 @@ export default function ProjectsList(props) {
           aria-label="แท็บโครงการ"
           variant="fullWidth"
           sx={{
-            display: 'none',
+            display: 'none', 
             borderBottom: 1,
             borderColor: 'divider',
             '& .MuiTabs-indicator': { bgcolor: colors.primary },
