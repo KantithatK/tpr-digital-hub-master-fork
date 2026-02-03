@@ -968,7 +968,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
     (row) => {
       // เผื่ออนาคตจะพาไปหน้ารายละเอียดงาน (tasks) — ตอนนี้ยังไม่ทำ
       const payload = {
-        toTab: 'subwork_phase',
+        toTab: 'main_task',
         projectId: project?.id ?? null,
         project: project || null,
         workstreamId: wsId ?? null,
@@ -1072,16 +1072,17 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
             <>
               <Box sx={{ opacity: 0.55, color: 'text.secondary' }}>·</Box>
               <Button
+                
 
+                 variant="text"
                 sx={{
                   p: 0,
                   minWidth: 0,
-                  textTransform: 'none',
-                  color: 'text.secondary',
+                  textTransform: "none",
+                  color: "text.secondary",
                   maxWidth: 280,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
                 title={wsName || ''}
               >
