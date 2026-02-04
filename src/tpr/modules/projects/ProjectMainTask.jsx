@@ -1845,6 +1845,7 @@ export default function ProjectMainTask({
             </LocalizationProvider>
 
             <TextField
+            sx={{display:'none'}}
               size="small"
               label="ชั่วโมงวางแผน"
               type="number"
