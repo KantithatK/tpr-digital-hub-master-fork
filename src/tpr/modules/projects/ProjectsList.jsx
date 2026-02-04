@@ -6,6 +6,7 @@ import CreateProjectTab from './CreateProjectTab';
 import ProjectsDashboard from './ProjectsDashboard';
 import ProjectWorkstream from './ProjectWorkstream';
 import ProjectMainTask from './ProjectMainTask';
+import ProjectSubTask from './ProjectSubTask';
 
 import Paper from '@mui/material/Paper';
 import Table from '@mui/material/Table';
@@ -116,6 +117,7 @@ export default function ProjectsList(props) {
       DASHBOARD: 3,
       MAIN_TASK: 4,
       SUBWORKS: 5,
+      SUB_TASK: 6,
     }),
     []
   );
@@ -216,6 +218,7 @@ export default function ProjectsList(props) {
   const [selectedWorkstream, setSelectedWorkstream] = React.useState(null);
   const [selectedPhase, setSelectedPhase] = React.useState(null);
   const [mainTaskNavPayload, setMainTaskNavPayload] = React.useState(null);
+  const [selectedTask, setSelectedTask] = React.useState(null);
 
   const handleNotify = (msg, severity = 'warning') => {
     setSnackbarMessage(msg || '');
@@ -729,6 +732,7 @@ export default function ProjectsList(props) {
           <Tab sx={tabSx} label="แดชบอร์ดโครงการ" value={TAB.DASHBOARD} {...a11yProps(TAB.DASHBOARD)} />
           <Tab sx={tabSx} label="งานหลัก" value={TAB.MAIN_TASK} {...a11yProps(TAB.MAIN_TASK)} />
           <Tab sx={tabSx} label="แผนงานย่อย" value={TAB.SUBWORKS} {...a11yProps(TAB.SUBWORKS)} />
+          <Tab sx={tabSx} label="งานย่อย" value={TAB.SUB_TASK} {...a11yProps(TAB.SUB_TASK)} />
         </Tabs>
 
         <TabPanel value={tab} index={TAB.LIST}>
@@ -1191,10 +1195,25 @@ export default function ProjectsList(props) {
                 supabase={supabase}
                 navPayload={mainTaskNavPayload}
                 onBack={() => gotoTab(TAB.DASHBOARD)}
+                onGoWork={(payload) => {
+                  try {
+                    const toTab = String(payload?.toTab || '').toLowerCase();
+                    if (toTab === 'sub_task' || toTab === 'subtask') {
+                      setSelectedWorkstream(payload?.workstream || null);
+                      setSelectedPhase(payload?.phase || null);
+                      setMainTaskNavPayload(payload || null);
+                      setSelectedTask(payload?.task || null);
+                      gotoTab(TAB.SUB_TASK);
+                      return;
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }}
                 onNavProjects={() => gotoTab(TAB.LIST)}
                 onNavProject={() => gotoTab(TAB.DASHBOARD)}
                 onNavWorkstreams={() => gotoTab(TAB.SUBWORKS)}
-                onNavPhases={() => gotoTab(TAB.SUBWORKS)}
+                onNavPhases={() => gotoTab(TAB.MAIN_TASK)}
               />
             )
           )}
@@ -1228,6 +1247,40 @@ export default function ProjectsList(props) {
                 onNavProject={() => gotoTab(TAB.DASHBOARD)}
                 onNavWorkstreams={() => gotoTab(TAB.SUBWORKS)}
               />
+            )
+          )}
+        </TabPanel>
+
+        <TabPanel value={tab} index={TAB.SUB_TASK}>
+          {tabLoading ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
+              <CircularProgress sx={{ color: '#d32f2f' }} />
+            </Box>
+          ) : !selectedProject ? (
+            <Typography color="text.secondary">เลือกโครงการจากแท็บ "ข้อมูลโครงการ" เพื่อดูงานย่อย</Typography>
+          ) : (
+            tabReady && (
+                <ProjectSubTask
+                  project={selectedProject}
+                  workstream={selectedWorkstream}
+                  phase={selectedPhase}
+                  task={selectedTask}
+                  navPayload={mainTaskNavPayload}
+                  supabase={supabase}
+                  onBack={() => gotoTab(TAB.MAIN_TASK)}
+                  onNavProjects={() => {
+                    setSelectedProject(null);
+                    setSelectedWorkstream(null);
+                    setSelectedPhase(null);
+                    setSelectedTask(null);
+                    setMainTaskNavPayload(null);
+                    gotoTab(TAB.LIST);
+                  }}
+                  onNavProject={() => gotoTab(TAB.DASHBOARD)}
+                  onNavWorkstreams={() => gotoTab(TAB.SUBWORKS)}
+                  onNavPhases={() => gotoTab(TAB.MAIN_TASK)}
+                  onNavMainTask={() => gotoTab(TAB.MAIN_TASK)}
+                />
             )
           )}
         </TabPanel>

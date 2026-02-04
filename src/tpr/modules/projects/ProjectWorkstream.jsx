@@ -1070,11 +1070,11 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
           </Button>
           {wsCode || wsName ? (
             <>
-              <Box sx={{ opacity: 0.55, color: 'text.secondary' }}>·</Box>
+              <Box sx={{ opacity: 0.55, color: "text.secondary" }}>›</Box>
               <Button
-                
 
-                 variant="text"
+
+                variant="text"
                 sx={{
                   p: 0,
                   minWidth: 0,
@@ -1088,6 +1088,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
               >
                 {wsName || '-'}
               </Button>
+             
             </>
           ) : null}
         </Stack>
@@ -1114,7 +1115,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
                 wordBreak: 'break-word',
               }}
             >
-              {wsName || '-'}
+              แผนงาน : {wsName || '-'}
             </Typography>
           </Box>
         )}
@@ -1578,15 +1579,15 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={1.5} sx={{ mt: 1 }}>
             <TextField
-                size="small"
-                label="รหัสเฟส"
-                value={phaseDialog.form.code}
-                onChange={(e) => setPhaseDialog((prev) => ({ ...prev, form: { ...prev.form, code: e.target.value } }))}
-                placeholder="PH-YYYYMMDD-HHMMSS"
-                fullWidth
-                required
-                sx={{display:'none'}}
-              />
+              size="small"
+              label="รหัสเฟส"
+              value={phaseDialog.form.code}
+              onChange={(e) => setPhaseDialog((prev) => ({ ...prev, form: { ...prev.form, code: e.target.value } }))}
+              placeholder="PH-YYYYMMDD-HHMMSS"
+              fullWidth
+              required
+              sx={{ display: 'none' }}
+            />
 
             <TextField
               size="small"
@@ -1670,7 +1671,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
             </LocalizationProvider>
 
             <TextField
-             sx={{display:'none'}}
+              sx={{ display: 'none' }}
               size="small"
               label="ชั่วโมงวางแผน"
               type="number"
@@ -1715,7 +1716,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
               !phaseDialog.form.end_date ||
               Boolean(phaseDialog?.errors?.start_date || phaseDialog?.errors?.end_date || phaseDialog?.errors?.planned_hours)
             }
-            sx={{ ...actionBtnSx }} 
+            sx={{ ...actionBtnSx }}
             startIcon={<SaveIcon />}
             size="medium"
           >

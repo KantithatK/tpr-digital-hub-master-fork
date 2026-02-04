@@ -18,6 +18,12 @@ import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Menu from "@mui/material/Menu";
 import Badge from "@mui/material/Badge";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemText from "@mui/material/ListItemText";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import InputAdornment from "@mui/material/InputAdornment";
+import Checkbox from "@mui/material/Checkbox";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
@@ -26,6 +32,7 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import LinearProgress from "@mui/material/LinearProgress";
 
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import SaveIcon from "@mui/icons-material/Save";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -34,6 +41,8 @@ import AddCircleIcon from "@mui/icons-material/AddCircle";
 import NotificationsNoneRoundedIcon from "@mui/icons-material/NotificationsNoneRounded";
 import FormatListNumberedRoundedIcon from "@mui/icons-material/FormatListNumberedRounded";
 import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import CloseIcon from "@mui/icons-material/Close";
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import EventAvailableRoundedIcon from "@mui/icons-material/EventAvailableRounded";
 import ReportProblemRoundedIcon from "@mui/icons-material/ReportProblemRounded";
@@ -63,6 +72,68 @@ const STATUS_COLORS = {
   "ล่าช้า": "#8B5CF6",
   "เสร็จแล้ว": "#08d84c",
 };
+
+// รายชื่อผู้รับผิดชอบที่เลือกได้ ต้องดึงจากสมาชิกของโปรเจค (tpr_project_members)
+// และให้ UI เรียกผ่าน logic layer: MainTask.listProjectMembers
+
+function formatEmployeeFull(emp) {
+  if (!emp) return "";
+  const code = String(emp.employee_code || "").trim();
+  const th = [
+    String(emp.title_th || "").trim(),
+    String(emp.first_name_th || "").trim(),
+    String(emp.last_name_th || "").trim(),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const en = [
+    String(emp.title_en || "").trim(),
+    String(emp.first_name_en || "").trim(),
+    String(emp.last_name_en || "").trim(),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const nick = String(emp.nickname_th || emp.nickname_en || "").trim();
+  const name = th || en || nick;
+  if (code && name) return `${name}`;
+  return name || code || "";
+}
+
+function formatEmployeeShort(emp) {
+  if (!emp) return "";
+  const first = String(emp.first_name_th || emp.first_name_en || emp.nickname_th || emp.nickname_en || "").trim();
+  const last = String(emp.last_name_th || emp.last_name_en || "").trim();
+  const lastInitial = last ? `${last.slice(0, 1)}.` : "";
+  return `${first} ${lastInitial}`.trim();
+}
+
+function uniqStrings(list) {
+  const out = [];
+  const seen = new Set();
+  for (const x of Array.isArray(list) ? list : []) {
+    const s = String(x || "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function buildOwnersSummary(ownerIds, employees) {
+  const ids = uniqStrings(ownerIds);
+  if (ids.length === 0) return "";
+
+  const map = new Map((Array.isArray(employees) ? employees : []).map((e) => [String(e?.id || ""), e]));
+  const names = ids
+    .map((id) => formatEmployeeShort(map.get(String(id)) || null) || "ไม่ทราบชื่อ")
+    .filter(Boolean);
+
+  const head = names.slice(0, 2);
+  const rest = Math.max(0, names.length - head.length);
+  return rest > 0 ? `${head.join(", ")} +${rest}` : head.join(", ");
+}
 
 function clamp(n, a, b) {
   const x = Number(n);
@@ -469,6 +540,58 @@ export default function ProjectMainTask({
 
   const [alertAnchor, setAlertAnchor] = React.useState(null);
 
+  // ===== Owner picker dialog state (multi owners) =====
+  const [employees, setEmployees] = React.useState([]);
+  const [ownerDialogOpen, setOwnerDialogOpen] = React.useState(false);
+  const [employeeSearch, setEmployeeSearch] = React.useState("");
+  const [ownerSelections, setOwnerSelections] = React.useState([]);
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        if (!projectId) {
+          setEmployees([]);
+          return;
+        }
+        const list = await MainTask.listProjectMembers({ projectId });
+        if (!alive) return;
+        setEmployees(Array.isArray(list) ? list : []);
+      } catch (e) {
+        console.error("[ProjectMainTask] Failed to load project members", e);
+        if (alive) setEmployees([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+  const filteredEmployees = React.useMemo(() => {
+    const q = String(employeeSearch || "").trim().toLowerCase();
+    const list = Array.isArray(employees) ? employees : [];
+    if (!q) return list;
+
+    return list.filter((e) => {
+      const hay = [
+        String(e?.employee_code || "").trim(),
+        String(e?.title_th || "").trim(),
+        String(e?.first_name_th || "").trim(),
+        String(e?.last_name_th || "").trim(),
+        String(e?.title_en || "").trim(),
+        String(e?.first_name_en || "").trim(),
+        String(e?.last_name_en || "").trim(),
+        String(e?.nickname_th || "").trim(),
+        String(e?.nickname_en || "").trim(),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return hay.includes(q);
+    });
+  }, [employeeSearch, employees]);
+
   const [taskDialog, setTaskDialog] = React.useState(() => ({
     open: false,
     mode: "create", // create | edit
@@ -484,9 +607,9 @@ export default function ProjectMainTask({
       end_date: "",
       planned_hours: "",
       billable_mode: "billable",
-      owner: "",
+      owners: [],
     },
-    errors: { start_date: "", end_date: "", planned_hours: "" },
+    errors: { start_date: "", end_date: "", planned_hours: "", owner: "" },
   }));
 
   const reloadTasks = React.useCallback(async () => {
@@ -533,8 +656,6 @@ export default function ProjectMainTask({
     }
   }, [projectId, wsId, phaseId]);
 
-  const openAlerts = React.useCallback((e) => setAlertAnchor(e.currentTarget), []);
-  const closeAlerts = React.useCallback(() => setAlertAnchor(null), []);
 
   const openCreateDialog = React.useCallback(() => {
     setTaskDialog({
@@ -552,14 +673,15 @@ export default function ProjectMainTask({
         end_date: "",
         planned_hours: "",
         billable_mode: "billable",
-        owner: "",
+        owners: [],
       },
-      errors: { start_date: "", end_date: "", planned_hours: "" },
+      errors: { start_date: "", end_date: "", planned_hours: "", owner: "" },
     });
   }, []);
 
   const openEditDialog = React.useCallback((row) => {
     const st = String(row?.metadata?.status || row?.status || "ยังไม่เริ่ม").trim() || "ยังไม่เริ่ม";
+    const preOwners = Array.isArray(row?.owners) ? row.owners.map((o) => o?.user_id).filter(Boolean) : [];
     setTaskDialog({
       open: true,
       mode: "edit",
@@ -575,9 +697,9 @@ export default function ProjectMainTask({
         end_date: row?.end_date || "",
         planned_hours: row?.planned_hours != null ? String(Number(row.planned_hours || 0)) : "",
         billable_mode: row?.billable_mode || "billable",
-        owner: row?.owner || "",
+        owners: uniqStrings(preOwners),
       },
-      errors: { start_date: "", end_date: "", planned_hours: "" },
+      errors: { start_date: "", end_date: "", planned_hours: "", owner: "" },
     });
   }, []);
 
@@ -663,18 +785,58 @@ export default function ProjectMainTask({
     };
   }, [taskDialog.form.end_date, taskDialog.form.start_date, taskDialog.form.planned_hours, taskDialog.open, taskDialog.plannedHoursAuto]);
 
+  const ownersSummary = React.useMemo(
+    () => buildOwnersSummary(taskDialog?.form?.owners, employees),
+    [employees, taskDialog?.form?.owners]
+  );
+
+  const openOwnerPicker = React.useCallback(() => {
+    const current = uniqStrings(taskDialog?.form?.owners);
+    setOwnerSelections(current);
+    setEmployeeSearch("");
+    setOwnerDialogOpen(true);
+  }, [taskDialog?.form?.owners]);
+
+  const closeOwnerPicker = React.useCallback(() => {
+    setOwnerDialogOpen(false);
+  }, []);
+
+  const toggleOwnerSelection = React.useCallback((userId) => {
+    const id = String(userId || "").trim();
+    if (!id) return;
+    setOwnerSelections((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+    });
+  }, []);
+
+  const confirmOwnerPicker = React.useCallback(() => {
+    const nextOwners = uniqStrings(ownerSelections);
+    setTaskDialog((prev) => ({
+      ...prev,
+      form: { ...prev.form, owners: nextOwners },
+      errors: { ...(prev.errors || {}), owner: "" },
+    }));
+    setOwnerDialogOpen(false);
+  }, [ownerSelections]);
+
   const saveTask = React.useCallback(async () => {
     if (!projectId || !phaseId) return;
 
     const form = taskDialog.form || {};
     const code = String(form.code || "").trim();
     const name = String(form.name || "").trim();
-    const owner = String(form.owner || "").trim() || null;
+    const owners = uniqStrings(form.owners);
     const billable_mode = String(form.billable_mode || "billable").trim() || "billable";
     const status = String(form.status || "ยังไม่เริ่ม").trim() || "ยังไม่เริ่ม";
 
     if (!code || !name) {
       window.alert("กรุณากรอก รหัส และ ชื่องานหลัก");
+      return;
+    }
+
+    if (owners.length === 0) {
+      setTaskDialog((prev) => ({ ...prev, errors: { ...(prev.errors || {}), owner: "กรุณาระบุผู้รับผิดชอบ" } }));
       return;
     }
 
@@ -721,7 +883,6 @@ export default function ProjectMainTask({
         code,
         name,
         planned_hours: Number(form.planned_hours || 0),
-        owner,
         start_date: form.start_date,
         end_date: form.end_date,
         billable_mode,
@@ -729,9 +890,9 @@ export default function ProjectMainTask({
       };
 
       if (taskDialog.mode === "edit" && form.id) {
-        await MainTask.updateTask(form.id, payload);
+        await MainTask.updateTask(form.id, { ...payload, owners });
       } else {
-        await MainTask.createTask(payload);
+        await MainTask.createTask({ ...payload, owners });
       }
 
       closeTaskDialog();
@@ -815,7 +976,6 @@ export default function ProjectMainTask({
     }
     dueSoon.sort((a, b) => (a.endMs || 0) - (b.endMs || 0));
 
-    // ✅ Top งานที่กินชั่วโมงมากสุด (ไม่ซ้ำ workstream dashboard)
     const topHours = [...rows]
       .map((r) => ({
         id: r?.id,
@@ -838,13 +998,11 @@ export default function ProjectMainTask({
     const topHoursCategories = topHours.map((t) => t.label);
     const topHoursMeta = topHours;
 
-    // ✅ Heatmap: จำนวนงานที่จะครบกำหนด (end_date) ใน 4 สัปดาห์ข้างหน้า
     const start = dayjs().startOf("day");
-    // Build next 4 "weeks" of weekdays only (Mon-Fri) => 4 * 5 = 20 days
     const weekdays = [];
     let _d = start.clone();
     while (weekdays.length < 20) {
-      const dow = _d.day(); // 0 = Sun, 6 = Sat
+      const dow = _d.day();
       if (dow !== 0 && dow !== 6) {
         weekdays.push(_d.clone());
       }
@@ -855,8 +1013,7 @@ export default function ProjectMainTask({
     for (const r of rows) {
       const endIso = String(r?.end_date || "").slice(0, 10);
       if (!endIso) continue;
-      const key = endIso;
-      endDateCounts.set(key, (endDateCounts.get(key) || 0) + 1);
+      endDateCounts.set(endIso, (endDateCounts.get(endIso) || 0) + 1);
     }
 
     const dayLabelTh = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
@@ -881,7 +1038,6 @@ export default function ProjectMainTask({
       };
     });
 
-    // ✅ Scatter: “ระยะเวลางาน (วัน) ตามวันเริ่ม” แยกตามสถานะ (ไม่ซ้ำ timeline เดิม)
     const scatterByStatus = statuses.reduce((acc, s) => ((acc[s] = []), acc), {});
     for (const r of rows) {
       const st = String(r?.status || "ยังไม่เริ่ม").trim() || "ยังไม่เริ่ม";
@@ -911,9 +1067,6 @@ export default function ProjectMainTask({
       data: scatterByStatus[s],
     }));
 
-    // KPI ช่วยให้ “ไม่ซ้ำ” โดยเพิ่ม เลยกำหนด / ใกล้ครบกำหนด
-    const dueSoonCount = dueSoon.length;
-
     return {
       statuses,
       kpi: {
@@ -923,7 +1076,7 @@ export default function ProjectMainTask({
         riskCount,
         byStatus: base.byStatus,
         dueSoonTop: dueSoon.slice(0, 3),
-        dueSoonCount,
+        dueSoonCount: dueSoon.length,
         overdueCount,
       },
       charts: {
@@ -941,7 +1094,7 @@ export default function ProjectMainTask({
   const handleRowClick = React.useCallback(
     (row) => {
       const payload = {
-        toTab: "main_task_detail",
+        toTab: "sub_task",
         projectId: project?.id ?? null,
         project: project || null,
         workstreamId: wsId ?? null,
@@ -999,9 +1152,10 @@ export default function ProjectMainTask({
             onClick={() => {
               try {
                 (onNavProjects || onBack)?.();
-              } catch {
-                // ignore
-              }
+              } catch 
+                  {
+                    // ignore
+                  }
             }}
             variant="text"
             sx={{
@@ -1020,9 +1174,10 @@ export default function ProjectMainTask({
             onClick={() => {
               try {
                 onNavProject?.();
-              } catch {
-                // ignore
-              }
+              } catch 
+                  {
+                    // ignore
+                  }
             }}
             variant="text"
             sx={{
@@ -1044,12 +1199,13 @@ export default function ProjectMainTask({
 
           {wsName ? (
             <>
-              <Box sx={{ opacity: 0.55, color: "text.secondary" }}>·</Box>
+              <Box sx={{ opacity: 0.55, color: "text.secondary" }}>›</Box>
               <Button
                 onClick={() => {
                   try {
                     onNavWorkstreams?.();
-                  } catch {
+                  } catch 
+                  {
                     // ignore
                   }
                 }}
@@ -1076,9 +1232,8 @@ export default function ProjectMainTask({
 
           {phaseName ? (
             <>
-              <Box sx={{ opacity: 0.55, color: "text.secondary" }}>·</Box>
+              <Box sx={{ opacity: 0.55, color: "text.secondary" }}>›</Box>
               <Button
-               
                 variant="text"
                 sx={{
                   p: 0,
@@ -1099,13 +1254,19 @@ export default function ProjectMainTask({
       )}
 
       {/* ===== Title + Bell ===== */}
-      <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="space-between" sx={{ mb: 2, flexWrap: "wrap", gap: 1.5 }}>
+      <Stack
+        direction="row"
+        spacing={1.5}
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{ mb: 2, flexWrap: "wrap", gap: 1.5 }}
+      >
         {tasksState.loading ? (
           <Skeleton variant="text" width={360} height={40} />
         ) : (
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="h4" sx={{ lineHeight: 1.15, mt: 0.25, wordBreak: "break-word" }}>
-              {phaseName ? `${phaseName}` : "—"}
+              เฟส : {phaseName ? `${phaseName}` : "—"}
             </Typography>
           </Box>
         )}
@@ -1114,7 +1275,7 @@ export default function ProjectMainTask({
           <Skeleton variant="rectangular" width={36} height={36} sx={{ borderRadius: 1 }} />
         ) : (
           <Tooltip title="สัญญาณแจ้งเตือน">
-            <IconButton size="small" onClick={openAlerts} aria-label="แจ้งเตือน" sx={{ ml: 0.5 }}>
+            <IconButton size="small" onClick={(e) => setAlertAnchor(e.currentTarget)} aria-label="แจ้งเตือน" sx={{ ml: 0.5 }}>
               <Badge badgeContent={alertCount} color="error">
                 <NotificationsNoneRoundedIcon />
               </Badge>
@@ -1126,7 +1287,7 @@ export default function ProjectMainTask({
       <Menu
         anchorEl={alertAnchor}
         open={Boolean(alertAnchor)}
-        onClose={closeAlerts}
+        onClose={() => setAlertAnchor(null)}
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         transformOrigin={{ vertical: "top", horizontal: "right" }}
         PaperProps={{ sx: { width: 360, borderRadius: 1 } }}
@@ -1198,7 +1359,7 @@ export default function ProjectMainTask({
         </Box>
       </Menu>
 
-      {/* ===== Summary (ปรับใหม่: ไม่ใช้ pie/bar เหมือน workstream) ===== */}
+      {/* ===== Summary (ปรับใหม่) ===== */}
       <Paper elevation={0} sx={{ boxShadow: "none", overflow: "hidden", mb: 2 }}>
         {tasksState.loading ? (
           <Box sx={{ px: 2, py: 2 }}>
@@ -1245,14 +1406,14 @@ export default function ProjectMainTask({
                 sub="Planned Hours"
                 color="#fdca01"
                 icon={<AccessTimeRoundedIcon sx={{ fontSize: 24 }} />}
-                />
+              />
               <KpiTile
                 label="ใกล้ครบกำหนด"
                 value={formatNumber(analytics.kpi.dueSoonCount)}
                 color="#3B82F6"
                 sub="ภายใน 7 วัน"
                 icon={<EventAvailableRoundedIcon sx={{ fontSize: 24 }} />}
-                />
+              />
               <KpiTile
                 label="เสี่ยง/ล่าช้า"
                 value={formatNumber(analytics.kpi.riskCount)}
@@ -1262,13 +1423,8 @@ export default function ProjectMainTask({
               />
             </Box>
 
-            {/* แถวกราฟ 1: Radial progress + Top hours */}
             <Box sx={{ mt: 2, display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", md: "0.9fr 1.1fr" } }}>
-              <CardShell
-                title="เข็มทิศความคืบหน้า"
-                subtitle="ภาพรวมงานหลักทั้งหมด"
-                
-              >
+              <CardShell title="เข็มทิศความคืบหน้า" subtitle="ภาพรวมงานหลักทั้งหมด">
                 <ReactApexChart
                   options={{
                     chart: { type: "radialBar", toolbar: { show: false } },
@@ -1297,30 +1453,14 @@ export default function ProjectMainTask({
                   height={250}
                 />
                 <Box sx={{ mt: 0.25, display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "center" }}>
-                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: STATUS_COLORS["ทำอยู่"] }} />
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-                      ทำอยู่ {formatNumber(analytics.kpi.byStatus["ทำอยู่"] || 0)}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: STATUS_COLORS["ยังไม่เริ่ม"] }} />
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-                      ยังไม่เริ่ม {formatNumber(analytics.kpi.byStatus["ยังไม่เริ่ม"] || 0)}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: STATUS_COLORS["เสี่ยง"] }} />
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-                      เสี่ยง {formatNumber(analytics.kpi.byStatus["เสี่ยง"] || 0)}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: STATUS_COLORS["ล่าช้า"] }} />
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-                      ล่าช้า {formatNumber(analytics.kpi.byStatus["ล่าช้า"] || 0)}
-                    </Typography>
-                  </Box>
+                  {["ทำอยู่", "ยังไม่เริ่ม", "เสี่ยง", "ล่าช้า"].map((s) => (
+                    <Box key={s} sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
+                      <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: STATUS_COLORS[s] }} />
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
+                        {s} {formatNumber(analytics.kpi.byStatus[s] || 0)}
+                      </Typography>
+                    </Box>
+                  ))}
                 </Box>
               </CardShell>
 
@@ -1351,11 +1491,11 @@ export default function ProjectMainTask({
                         categories: analytics.charts.topHoursCategories,
                         labels: { formatter: (v) => formatNumber(v) },
                       },
-                      yaxis: {
-                        labels: { formatter: (v) => String(v), align: 'left' },
-                      },
+                      yaxis: { labels: { formatter: (v) => String(v), align: "left" } },
                       tooltip: { y: { formatter: (v) => `${formatNumber(v)} ชม.` } },
-                      colors: (analytics.charts.topHoursMeta || []).map((t) => STATUS_COLORS[String(t?.status || "ยังไม่เริ่ม").trim()] || STATUS_COLORS["ยังไม่เริ่ม"]),
+                      colors: (analytics.charts.topHoursMeta || []).map(
+                        (t) => STATUS_COLORS[String(t?.status || "ยังไม่เริ่ม").trim()] || STATUS_COLORS["ยังไม่เริ่ม"]
+                      ),
                       legend: { show: false },
                     }}
                     series={analytics.charts.topHoursSeries}
@@ -1366,7 +1506,6 @@ export default function ProjectMainTask({
               </CardShell>
             </Box>
 
-            {/* แถวกราฟ 2: Heatmap deadlines + Scatter duration */}
             <Box sx={{ mt: 1.25, display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
               <CardShell title="Heatmap กำหนดส่ง (4 สัปดาห์)" subtitle="นับจำนวนงานที่ end_date ตรงกับวันนั้น">
                 <ReactApexChart
@@ -1409,7 +1548,7 @@ export default function ProjectMainTask({
                   height={260}
                 />
                 <Typography variant="caption" color="text.secondary">
-                  * ใช้ end_date ของงานหลัก เพื่อช่วยดู “วันไหนแน่น” (ไม่ซ้ำกราฟสัดส่วนแบบเดิม)
+                  * ใช้ end_date ของงานหลัก เพื่อช่วยดู “วันไหนแน่น”
                 </Typography>
               </CardShell>
 
@@ -1475,7 +1614,6 @@ export default function ProjectMainTask({
       </Paper>
 
       {/* ===== Tasks Box ===== */}
-      {/* ❗️ตามที่สั่ง: “Box รายการงานหลัก” ห้ามปรับ (คงเดิม) */}
       <Paper elevation={0} sx={{ border: "1px solid", borderColor: "grey.200", boxShadow: "none", overflow: "hidden" }}>
         {tasksState.loading ? (
           <Box sx={{ px: 2, py: 2, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
@@ -1551,9 +1689,6 @@ export default function ProjectMainTask({
         )}
       </Paper>
 
-      {/* ===== Replace Timeline -> Scatter duration chart already above (ไม่ซ้ำ workstream) ===== */}
-      {/* ถ้าคุณยังอยากมี “Timeline” แบบ Gantt อยู่ ให้บอกได้ เดี๋ยวผมทำเป็นเวอร์ชันที่ไม่ซ้ำ (เช่น Mini timeline เฉพาะ due dates) */}
-
       {/* ===== Delete dialog ===== */}
       <Dialog open={deleteDialog.open} onClose={closeDeleteDialog} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 900 }}>ยืนยันการลบ</DialogTitle>
@@ -1596,7 +1731,30 @@ export default function ProjectMainTask({
               required
             />
 
+            {/* ✅ ผู้รับผิดชอบ: TextField ปกติ + ปุ่มค้นหาชิดขวา */}
             <TextField
+             
+              size="small"
+              label="ผู้รับผิดชอบ"
+              value={ownersSummary || ""}
+              onClick={openOwnerPicker}
+              error={Boolean(taskDialog?.errors?.owner)}
+              fullWidth
+              required
+              InputProps={{
+                readOnly: true,
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={openOwnerPicker} aria-label="ค้นหา/เลือกผู้รับผิดชอบ">
+                      <SearchRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            <TextField
+              sx={{ display: "none" }}
               select
               size="small"
               label="สถานะ"
@@ -1612,6 +1770,7 @@ export default function ProjectMainTask({
             </TextField>
 
             <TextField
+              sx={{ display: "none" }}
               select
               size="small"
               label="โหมดบิล"
@@ -1623,14 +1782,6 @@ export default function ProjectMainTask({
               <MenuItem value="non_billable">non_billable</MenuItem>
               <MenuItem value="manual">manual</MenuItem>
             </TextField>
-
-            <TextField
-              size="small"
-              label="ผู้รับผิดชอบ"
-              value={taskDialog.form.owner}
-              onChange={(e) => setTaskDialog((prev) => ({ ...prev, form: { ...prev.form, owner: e.target.value } }))}
-              fullWidth
-            />
 
             <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="th">
               <Stack direction="column" spacing={1.25}>
@@ -1732,6 +1883,69 @@ export default function ProjectMainTask({
             size="medium"
           >
             บันทึก
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ===== Owner Picker Dialog (multi-select) ===== */}
+      <Dialog
+        open={ownerDialogOpen}
+        onClose={closeOwnerPicker}
+        fullWidth
+        maxWidth="sm"
+        PaperProps={{ sx: { height: "90vh", maxHeight: "90vh", display: "flex", flexDirection: "column" } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          เลือกผู้รับผิดชอบ
+          <IconButton onClick={closeOwnerPicker} size="small" aria-label="ปิด">
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+
+        <DialogContent sx={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
+          <TextField
+            size="small"
+            placeholder="ค้นหา"
+            fullWidth
+            value={employeeSearch}
+            onChange={(e) => setEmployeeSearch(e.target.value)}
+            sx={{ mt: 3 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchRoundedIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          <List sx={{ mt: 0.5, flex: 1, overflow: "auto" }}>
+            {filteredEmployees.map((emp) => {
+              const id = String(emp?.id || "");
+              const checked = Array.isArray(ownerSelections) ? ownerSelections.includes(id) : false;
+              return (
+                <ListItemButton key={id} onClick={() => toggleOwnerSelection(id)}>
+                  <ListItemIcon>
+                    <Checkbox checked={checked} tabIndex={-1} disableRipple color="error" size="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={formatEmployeeFull(emp) || "—"}
+                    // secondary={checked ? "เลือกแล้ว" : null}
+                    // primaryTypographyProps={{ sx: { fontSize: 14, fontWeight: 500 } }}
+                    secondaryTypographyProps={{ sx: { fontSize: 12 } }}
+                  />
+                </ListItemButton>
+              );
+            })}
+          </List>
+        </DialogContent>
+
+        <DialogActions sx={{ justifyContent: "center", gap: 1.25 }}>
+          <Button onClick={closeOwnerPicker} sx={{ color: "common.black", ...actionBtnSx }} disableElevation>
+            ยกเลิก
+          </Button>
+          <Button variant="contained" startIcon={<CheckCircleIcon />} onClick={confirmOwnerPicker} sx={actionBtnSx} disableElevation>
+            ตกลง
           </Button>
         </DialogActions>
       </Dialog>
