@@ -372,7 +372,7 @@ export default function SystemSettings() {
           >
             <Tab sx={tabSx} label="ลูกค้า" {...a11yProps(0)} />
             <Tab sx={tabSx} label="คู่ค้า" {...a11yProps(1)} />
-            <Tab sx={tabSx} label="ทีมงาน" {...a11yProps(2)} />
+            <Tab sx={{ ...tabSx, display: 'none' }} label="ทีมงาน" {...a11yProps(2)} />
 
             {/* ✅ เพิ่มแท็บกำหนดสิทธิ์ */}
             <Tab sx={tabSx} label="สิทธิ์" {...a11yProps(3)} />

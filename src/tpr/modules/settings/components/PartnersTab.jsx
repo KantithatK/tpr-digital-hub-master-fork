@@ -655,7 +655,7 @@ export default function PartnersTab({ notify }) {
 
       {/* ===== Partner + Contacts Dialog ===== */}
       <Dialog open={dialogOpen} onClose={closeDialog} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>{form.id ? 'แก้ไข' : 'เพิ่ม'}</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700 }}>{form.id ? 'แก้ไขคู่ค้า' : 'เพิ่มคู่ค้า'}</DialogTitle>
 
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -835,11 +835,11 @@ export default function PartnersTab({ notify }) {
                   <Table size="small" sx={{ minWidth: 600 }}>
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 700, minWidth: { xs: 120, sm: 200 } }}>ชื่อ</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: { xs: 100, sm: 180 } }}>ตำแหน่ง</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: { xs: 100, sm: 150 } }}>โทร</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: { xs: 140, sm: 240 } }}>อีเมล</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: 64 }} align="right">
+                        <TableCell sx={{ fontWeight: 700, minWidth: 200 }}>ชื่อ *</TableCell>
+                        <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>ตำแหน่ง</TableCell>
+                        <TableCell sx={{ fontWeight: 700, minWidth: 220 }}>อีเมล</TableCell>
+                        <TableCell sx={{ fontWeight: 700, minWidth: 140 }}>เบอร์โทร</TableCell>
+                        <TableCell sx={{ fontWeight: 700, }} align="center">
                           ลบ
                         </TableCell>
                       </TableRow>
@@ -866,6 +866,15 @@ export default function PartnersTab({ notify }) {
                               sx={inputSx}
                             />
                           </TableCell>
+                           <TableCell>
+                            <TextField
+                              size="small"
+                              value={c.email}
+                              onChange={(e) => updateContactField(idx, 'email', e.target.value)}
+                              fullWidth
+                              sx={inputSx}
+                            />
+                          </TableCell>
                           <TableCell>
                             <TextField
                               size="small"
@@ -875,16 +884,7 @@ export default function PartnersTab({ notify }) {
                               sx={inputSx}
                             />
                           </TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small"
-                              value={c.email}
-                              onChange={(e) => updateContactField(idx, 'email', e.target.value)}
-                              fullWidth
-                              sx={inputSx}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
+                          <TableCell align="center">
                             <Tooltip title="ลบผู้ติดต่อ">
                               <span>
                                 <IconButton

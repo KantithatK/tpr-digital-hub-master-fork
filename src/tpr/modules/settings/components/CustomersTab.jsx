@@ -738,7 +738,7 @@ export default function CustomersTab({ notify }) {
 
       {/* ===== Customer + Contacts Dialog ===== */}
       <Dialog open={dialogOpen} onClose={closeDialog} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>{form.id ? 'แก้ไข' : 'เพิ่ม'}</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700 }}>{form.id ? 'แก้ไขลูกค้า' : 'เพิ่มลูกค้า'}</DialogTitle>
 
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -900,7 +900,7 @@ export default function CustomersTab({ notify }) {
 
             <TextField
               size="small"
-              label="ที่อยู่ออกบิล"
+              label="ที่อยู่"
               value={form.billing_address}
               onChange={(e) => setForm((p) => ({ ...p, billing_address: e.target.value }))}
               fullWidth
@@ -949,12 +949,9 @@ export default function CustomersTab({ notify }) {
                       <TableRow>
                         <TableCell sx={{ fontWeight: 700, minWidth: 200 }}>ชื่อ *</TableCell>
                         <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>ตำแหน่ง</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>แผนก</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: 140 }}>โทร</TableCell>
                         <TableCell sx={{ fontWeight: 700, minWidth: 220 }}>อีเมล</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: 140 }}>สถานะ</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: 220 }}>หมายเหตุ</TableCell>
-                        <TableCell sx={{ fontWeight: 700, width: 64 }} align="right">
+                        <TableCell sx={{ fontWeight: 700, minWidth: 140 }}>เบอร์โทร</TableCell>
+                        <TableCell sx={{ fontWeight: 700, }} align="center">
                           ลบ
                         </TableCell>
                       </TableRow>
@@ -985,8 +982,8 @@ export default function CustomersTab({ notify }) {
                           <TableCell>
                             <TextField
                               size="small"
-                              value={c.department}
-                              onChange={(e) => updateContactField(idx, 'department', e.target.value)}
+                              value={c.email}
+                              onChange={(e) => updateContactField(idx, 'email', e.target.value)}
                               fullWidth
                               sx={inputSx}
                             />
@@ -1000,41 +997,7 @@ export default function CustomersTab({ notify }) {
                               sx={inputSx}
                             />
                           </TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small"
-                              value={c.email}
-                              onChange={(e) => updateContactField(idx, 'email', e.target.value)}
-                              fullWidth
-                              sx={inputSx}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small"
-                              value={c.status}
-                              onChange={(e) => updateContactField(idx, 'status', e.target.value)}
-                              fullWidth
-                              select
-                              sx={inputSx}
-                            >
-                              {STATUSES.map((x) => (
-                                <MenuItem key={x.value} value={x.value}>
-                                  {x.label}
-                                </MenuItem>
-                              ))}
-                            </TextField>
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small"
-                              value={c.note}
-                              onChange={(e) => updateContactField(idx, 'note', e.target.value)}
-                              fullWidth
-                              sx={inputSx}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
+                          <TableCell align="center">
                             <Tooltip title="ลบผู้ติดต่อ">
                               <span>
                                 <IconButton
