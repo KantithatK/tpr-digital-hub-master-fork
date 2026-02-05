@@ -15,8 +15,8 @@ import Projects from './Projects';
 const TABLE_WORKSTREAMS = 'tpr_workstreams';
 const TABLE_PHASES = 'tpr_project_wbs_phases';
 
-// ให้เหมือน workstreams (ตามที่คุณสั่ง)
-export const WORKSTREAM_STATUSES = ['ยังไม่เริ่ม', 'ทำอยู่', 'เสี่ยง', 'ล่าช้า', 'เสร็จแล้ว', 'Planning'];
+// WBS canonical statuses (ให้ตรงกับ Projects.js)
+export const WORKSTREAM_STATUSES = ['ยังไม่เริ่ม', 'กำลังทำ', 'เสร็จแล้ว'];
 const STATUS_SET = new Set(WORKSTREAM_STATUSES);
 
 // -------------------- utils --------------------
@@ -50,21 +50,36 @@ function addDaysISO(dateISO, deltaDays) {
 }
 
 function normalizeStatus(v) {
+  // Prefer Projects.js normalization (รองรับ DB codes + legacy)
+  if (Projects && typeof Projects.normalizeWbsStatus === 'function') {
+    return Projects.normalizeWbsStatus(v);
+  }
+
   const s = String(v || '').trim();
-  if (!s) return 'Planning';
+  if (!s) return 'ยังไม่เริ่ม';
   if (STATUS_SET.has(s)) return s;
 
-  // รองรับค่า legacy/อังกฤษ (กันข้อมูลเก่า)
+  // legacy/อังกฤษ
   const low = s.toLowerCase();
-  if (low === 'planning') return 'Planning';
+  if (low === 'planning' || low === 'pending' || low === 'not started' || low === 'new') return 'ยังไม่เริ่ม';
+  if (low === 'doing' || low === 'in progress' || low === 'progress' || low === 'active') return 'กำลังทำ';
   if (low === 'done' || low === 'completed' || low === 'complete' || low === 'finished') return 'เสร็จแล้ว';
-  if (low === 'delay' || low === 'delayed' || low === 'late') return 'ล่าช้า';
-  if (low === 'risk' || low === 'at risk') return 'เสี่ยง';
-  if (low === 'doing' || low === 'in progress' || low === 'progress') return 'ทำอยู่';
-  if (low === 'pending' || low === 'not started' || low === 'new') return 'ยังไม่เริ่ม';
 
-  // ถ้าไม่รู้จักจริง ๆ ให้เก็บไว้เป็น Planning (เพื่อไม่ให้ chart/summary พัง)
-  return 'Planning';
+  return 'ยังไม่เริ่ม';
+}
+
+function toDbWbsStatusCode(anyStatus) {
+  const th = normalizeStatus(anyStatus);
+  if (th === 'เสร็จแล้ว') return 'DONE';
+  if (th === 'กำลังทำ') return 'IN_PROGRESS';
+  return 'NOT_STARTED';
+}
+
+function clampPct(v) {
+  if (Projects && typeof Projects.clampPct === 'function') return Projects.clampPct(v);
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
 }
 
 // -------------------- phase scheduling helpers (Projects.js based) --------------------
@@ -177,8 +192,8 @@ export async function listPhases({ projectId, workstreamId }) {
   if (error) throw error;
 
   const rows = Array.isArray(data) ? data : [];
-  // normalize status ให้เป็นชุดเดียวกันเสมอ
-  return rows.map((r) => ({ ...r, status: normalizeStatus(r?.status) }));
+  // normalize status/progress ให้เป็นชุดเดียวกันเสมอ
+  return rows.map((r) => ({ ...r, status: normalizeStatus(r?.status), progress: clampPct(r?.progress ?? 0) }));
 }
 
 export async function createPhase(payload) {
@@ -195,7 +210,8 @@ export async function createPhase(payload) {
     owner: payload?.owner ? String(payload.owner).trim() : null, // (คุณบอกไม่ต้องเลือกพนักงาน แต่คอลัมน์มีอยู่ จึงปล่อย optional)
     start_date: toISODate(payload?.start_date),
     end_date: toISODate(payload?.end_date),
-    status: normalizeStatus(payload?.status || 'Planning'),
+    status: toDbWbsStatusCode(payload?.status || 'ยังไม่เริ่ม'),
+    progress: clampPct(payload?.progress ?? 0),
     note: payload?.note ? String(payload.note).trim() : null,
     metadata: payload?.metadata || null,
   };
@@ -214,7 +230,7 @@ export async function createPhase(payload) {
   const { data, error } = await supabase.from(TABLE_PHASES).insert(clean).select('*').single();
   if (error) throw error;
 
-  return { ...data, status: normalizeStatus(data?.status) };
+  return { ...data, status: normalizeStatus(data?.status), progress: clampPct(data?.progress ?? 0) };
 }
 
 export async function updatePhase(phaseId, patch) {
@@ -256,7 +272,8 @@ export async function updatePhase(phaseId, patch) {
     ...(patch?.owner !== undefined ? { owner: patch.owner ? String(patch.owner).trim() : null } : {}),
     ...(patch?.start_date !== undefined ? { start_date: toISODate(patch.start_date) } : {}),
     ...(patch?.end_date !== undefined ? { end_date: toISODate(patch.end_date) } : {}),
-    ...(patch?.status !== undefined ? { status: normalizeStatus(patch.status || 'Planning') } : {}),
+    ...(patch?.status !== undefined ? { status: toDbWbsStatusCode(patch.status || 'ยังไม่เริ่ม') } : {}),
+    ...(patch?.progress !== undefined ? { progress: clampPct(patch.progress ?? 0) } : {}),
     ...(patch?.note !== undefined ? { note: patch.note ? String(patch.note).trim() : null } : {}),
     ...(patch?.metadata !== undefined ? { metadata: patch.metadata || null } : {}),
     ...(patch?.workstream_id !== undefined ? { workstream_id: patch.workstream_id || null } : {}),
@@ -267,7 +284,7 @@ export async function updatePhase(phaseId, patch) {
   if (!Object.keys(clean).length) {
     const cur = await supabase.from(TABLE_PHASES).select('*').eq('id', phaseId).maybeSingle();
     if (cur.error) throw cur.error;
-    return cur.data ? { ...cur.data, status: normalizeStatus(cur.data?.status) } : null;
+    return cur.data ? { ...cur.data, status: normalizeStatus(cur.data?.status), progress: clampPct(cur.data?.progress ?? 0) } : null;
   }
 
   const { data, error } = await supabase
@@ -278,7 +295,7 @@ export async function updatePhase(phaseId, patch) {
     .single();
 
   if (error) throw error;
-  return { ...data, status: normalizeStatus(data?.status) };
+  return { ...data, status: normalizeStatus(data?.status), progress: clampPct(data?.progress ?? 0) };
 }
 
 export async function deletePhase(phaseId) {
@@ -312,7 +329,14 @@ export function summarizePhases(phases = []) {
   }
 
   const doneCount = byStatus['เสร็จแล้ว'] || 0;
-  const progressPct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+  const progressList = list
+    .map((p) => (p && p.progress !== undefined && p.progress !== null ? clampPct(p.progress) : null))
+    .filter((n) => typeof n === 'number' && Number.isFinite(n));
+
+  const progressPct =
+    progressList.length > 0
+      ? Math.round(progressList.reduce((acc, n) => acc + n, 0) / progressList.length)
+      : (total > 0 ? Math.round((doneCount / total) * 100) : 0);
 
   return {
     total,

@@ -7,13 +7,75 @@
 // - audit fields: created_by / updated_by
 
 import { supabase } from "../../lib/supabaseClient";
+import Projects from "./Projects";
 
 const TABLE_SUBTASKS = "tpr_project_wbs_sub_tasks";
 const TABLE_PHASES = "tpr_project_wbs_phases";
+const TABLE_TASKS = "tpr_project_wbs_tasks";
 const TABLE_PROJECT_MEMBERS = "tpr_project_members";
 
 const HOURS_PER_DAY = 8;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function clampPct(v) {
+  if (Projects && typeof Projects.clampPct === "function") return Projects.clampPct(v);
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function normalizeWbsStatus(v) {
+  if (Projects && typeof Projects.normalizeWbsStatus === "function") return Projects.normalizeWbsStatus(v);
+  const s = String(v || "").trim();
+  return s || "ยังไม่เริ่ม";
+}
+
+function deriveStatusFromProgress(pct) {
+  if (Projects && typeof Projects.deriveStatusFromProgress === "function") return Projects.deriveStatusFromProgress(pct);
+  const p = clampPct(pct);
+  if (p <= 0) return "ยังไม่เริ่ม";
+  if (p >= 100) return "เสร็จแล้ว";
+  return "กำลังทำ";
+}
+
+function toDbWbsStatusCode(anyStatus) {
+  const th = normalizeWbsStatus(anyStatus);
+  if (th === "เสร็จแล้ว") return "DONE";
+  if (th === "กำลังทำ") return "IN_PROGRESS";
+  return "NOT_STARTED";
+}
+
+function normalizeSubTaskRow(row) {
+  const r = row || {};
+  const progress = clampPct(r.progress ?? 0);
+  const statusTh = normalizeWbsStatus(r.status ?? deriveStatusFromProgress(progress));
+  return { ...r, progress, status: statusTh };
+}
+
+function prepareSubTaskWritePayload(payload, { forCreate }) {
+  const src = payload || {};
+
+  const hasProgress = src.progress !== undefined && src.progress !== null && String(src.progress) !== "";
+  const hasStatus = src.status !== undefined && src.status !== null && String(src.status) !== "";
+
+  let nextProgress = hasProgress ? clampPct(src.progress) : undefined;
+
+  if (!hasProgress && hasStatus) {
+    const st = normalizeWbsStatus(src.status);
+    if (st === "เสร็จแล้ว") nextProgress = 100;
+    else if (st === "ยังไม่เริ่ม") nextProgress = 0;
+  }
+
+  if (!hasProgress && !hasStatus && forCreate) nextProgress = 0;
+
+  const statusTh = nextProgress !== undefined ? deriveStatusFromProgress(nextProgress) : (hasStatus ? normalizeWbsStatus(src.status) : undefined);
+  const statusCode = statusTh !== undefined ? toDbWbsStatusCode(statusTh) : undefined;
+
+  const out = { ...src };
+  if (nextProgress !== undefined) out.progress = nextProgress;
+  if (statusCode !== undefined) out.status = statusCode;
+  return out;
+}
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -106,6 +168,19 @@ export async function getPhaseBounds({ phaseId, supabaseClient = supabase }) {
   return data || null;
 }
 
+export async function getTaskBounds({ taskId, supabaseClient = supabase }) {
+  if (!taskId) return null;
+
+  const { data, error } = await supabaseClient
+    .from(TABLE_TASKS)
+    .select("id, project_id, workstream_id, start_date, end_date")
+    .eq("id", taskId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
 export function validateSubTaskRangeWithinPhase({
   start_date,
   end_date,
@@ -144,10 +219,56 @@ export function validateSubTaskRangeWithinPhase({
   return { ok: true };
 }
 
+export function validateSubTaskRangeWithinTask({
+  start_date,
+  end_date,
+  task_start,
+  task_end,
+}) {
+  const start = String(start_date || "").trim();
+  const end = String(end_date || "").trim();
+  const tStart = String(task_start || "").trim();
+  const tEnd = String(task_end || "").trim();
+
+  if (!start || !end) {
+    return { ok: false, errorKey: "REQUIRED", messageTh: "กรุณาเลือกวันที่เริ่มและวันที่สิ้นสุด" };
+  }
+
+  const sMs = parseISODateOnlyToMs(start);
+  const eMs = parseISODateOnlyToMs(end);
+  if (!Number.isFinite(sMs) || !Number.isFinite(eMs)) {
+    return { ok: false, errorKey: "INVALID_DATE", messageTh: "รูปแบบวันที่ไม่ถูกต้อง" };
+  }
+  if (eMs < sMs) {
+    return { ok: false, errorKey: "END_BEFORE_START", messageTh: "วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่ม" };
+  }
+
+  // Task bounds must exist — subtask must be within task
+  if (!tStart || !tEnd) {
+    return { ok: false, errorKey: "MISSING_TASK_BOUNDS", messageTh: "งานหลักยังไม่มีช่วงวันที่เริ่ม/สิ้นสุด จึงไม่สามารถสร้าง/แก้ไข งานย่อย ได้" };
+  }
+
+  const tsMs = parseISODateOnlyToMs(tStart);
+  const teMs = parseISODateOnlyToMs(tEnd);
+  if (!Number.isFinite(tsMs) || !Number.isFinite(teMs)) {
+    return { ok: false, errorKey: "INVALID_TASK_BOUNDS", messageTh: "ช่วงวันที่ของงานหลักไม่ถูกต้อง" };
+  }
+
+  if (sMs < tsMs) {
+    return { ok: false, errorKey: "START_BEFORE_TASK", messageTh: "วันที่เริ่มต้องไม่ก่อนช่วงของงานหลัก" };
+  }
+  if (eMs > teMs) {
+    return { ok: false, errorKey: "END_AFTER_TASK", messageTh: "วันที่สิ้นสุดต้องไม่เกินช่วงของงานหลัก" };
+  }
+
+  return { ok: true };
+}
+
 export async function listSubTasks({
   projectId,
   phaseId,
   taskId,
+  workstreamId,
   ownerId,
   supabaseClient = supabase,
 }) {
@@ -160,34 +281,38 @@ export async function listSubTasks({
     .order("id", { ascending: true });
 
   if (phaseId != null) q = q.eq("phase_id", phaseId);
+  if (workstreamId != null) q = q.eq("workstream_id", workstreamId);
   if (taskId != null) q = q.eq("task_id", taskId);
   if (ownerId) q = q.eq("owner", ownerId);
 
   const { data, error } = await q;
   if (error) throw error;
-  return data || [];
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map(normalizeSubTaskRow);
 }
 
 export async function createSubTask(payload, supabaseClient = supabase) {
+  const clean = prepareSubTaskWritePayload(payload, { forCreate: true });
   const { data, error } = await supabaseClient
     .from(TABLE_SUBTASKS)
-    .insert([payload])
+    .insert([clean])
     .select("*")
     .single();
   if (error) throw error;
-  return data;
+  return normalizeSubTaskRow(data);
 }
 
 export async function updateSubTask(id, payload, supabaseClient = supabase) {
   if (!id) throw new Error("Missing sub task id");
+  const clean = prepareSubTaskWritePayload(payload, { forCreate: false });
   const { data, error } = await supabaseClient
     .from(TABLE_SUBTASKS)
-    .update(payload)
+    .update(clean)
     .eq("id", id)
     .select("*")
     .single();
   if (error) throw error;
-  return data;
+  return normalizeSubTaskRow(data);
 }
 
 export async function deleteSubTask(id, supabaseClient = supabase) {
@@ -208,7 +333,7 @@ export async function calcSubTaskEndDateFromPlannedHours({
   const start = String(start_date || "").trim();
   const hours = Number(planned_hours || 0);
 
-  if (!start || !Number.isFinite(hours) || hours <= 0) {
+  if (!start || !Number.isFinite(hours) || hours <= 0) { 
     return { ok: false, messageTh: "กรุณาระบุวันที่เริ่ม และชั่วโมงวางแผนให้ถูกต้อง" };
   }
 

@@ -347,7 +347,9 @@ export default function CreateProjectTab(props) {
       const arr = Array.isArray(list) ? list : [];
       if (!qq) return arr;
       return arr.filter((emp) => {
+        
         const th = `${emp.title_th ? emp.title_th + ' ' : ''}${emp.first_name_th || ''} ${emp.last_name_th || ''}`.trim();
+
         const en = `${emp.first_name_en || ''} ${emp.last_name_en || ''}`.trim();
         const code = String(emp.employee_code || '');
         const email = String(emp.email || '');
@@ -425,7 +427,7 @@ export default function CreateProjectTab(props) {
     const actorId = await getActorIdFromSupabase(supabase);
 
     // ✅ ใช้ helper Projects เป็นหลัก (กันชน schema / manager_id)
-    const formForSave = {
+    const projectFormForSave = {
       ...dialogForm,
       id: dialogForm?.id || null,
       code: safeCode,
@@ -457,12 +459,18 @@ export default function CreateProjectTab(props) {
       initial_team_ids: Array.isArray(syncedTeam) ? syncedTeam : [],
 
       parent_project_id: dialogForm?.parent_project_id ?? 'MAIN',
-      status: dialogForm?.status || 'Planning',
+      status: dialogForm?.status || 'ยังไม่เริ่ม',
 
       __mode: isEdit ? 'update' : 'create',
     };
 
-    const v = Projects?.validateCreateForm ? Projects.validateCreateForm(formForSave) : { ok: true, errors: {}, normalized: formForSave };
+    if (Projects.normalizeWbsStatus) {
+      projectFormForSave.status = Projects.normalizeWbsStatus(projectFormForSave.status);
+    }
+
+    const v = Projects?.validateCreateForm
+      ? Projects.validateCreateForm(projectFormForSave)
+      : { ok: true, errors: {}, normalized: projectFormForSave };
     if (v && v.ok === false) {
       notifyFirstError(v.errors || {}, 'กรุณาตรวจสอบข้อมูลก่อนบันทึก');
       return;
@@ -470,12 +478,14 @@ export default function CreateProjectTab(props) {
 
     setSaving(true);
     try {
-      const dbPayload = isEdit ? Projects.toDbUpdate(v.normalized || formForSave) : Projects.toDbInsert(v.normalized || formForSave);
+      const dbPayload = isEdit
+        ? Projects.toDbUpdate(v.normalized || projectFormForSave)
+        : Projects.toDbInsert(v.normalized || projectFormForSave);
 
       let saved = null;
 
       if (isEdit) {
-        saved = await Projects.update(supabase, formForSave.id, dbPayload);
+        saved = await Projects.update(supabase, projectFormForSave.id, dbPayload);
 
         // optional post-update hook (ไม่บังคับ)
         try {
@@ -933,12 +943,12 @@ export default function CreateProjectTab(props) {
         <DialogActions sx={{ justifyContent: 'center', gap: 1.25 }}>
           <Button onClick={() => setCustomerDialogOpen(false)} sx={{ color: 'common.black', ...flatBtnSx }} disableElevation>
             ปิด
-          </Button>
+          </Button> 
         </DialogActions>
       </Dialog>
 
       {/* ===== Project Admin Dialog ===== */}
-      <Dialog open={employeeDialogOpen} onClose={() => setEmployeeDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={employeeDialogOpen} onClose={() => setEmployeeDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { height: '90vh', maxHeight: '90vh', display: 'flex', flexDirection: 'column' } }}>
         <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           เลือก Project Admin
           <IconButton onClick={() => setEmployeeDialogOpen(false)} sx={flatIconBtnSx}>
@@ -953,7 +963,7 @@ export default function CreateProjectTab(props) {
             fullWidth
             value={employeeSearch}
             onChange={(e) => setEmployeeSearch(e.target.value)}
-            sx={{ mb: 1, ...inputSx }}
+            sx={{ mt: 3, mb: 1, ...inputSx }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -963,7 +973,7 @@ export default function CreateProjectTab(props) {
             }}
           />
 
-          <List sx={{ mt: 0.5, maxHeight: 420, overflow: 'auto' }}>
+          <List sx={{ mt: 0.5, overflow: 'auto' }}>
             {filterEmployees(employees, employeeSearch).map((emp) => (
               <ListItemButton
                 key={emp.id}
@@ -981,21 +991,15 @@ export default function CreateProjectTab(props) {
                   setEmployeeDialogOpen(false);
                 }}
               >
-                <ListItemText primary={formatEmployee(emp)} secondary={emp.employee_code || ''} />
+                <ListItemText primary={formatEmployee(emp)} />
               </ListItemButton>
             ))}
           </List>
         </DialogContent>
-
-        <DialogActions sx={{ justifyContent: 'center', gap: 1.25 }}>
-          <Button onClick={() => setEmployeeDialogOpen(false)} sx={{ color: 'common.black', ...flatBtnSx }} disableElevation>
-            ปิด
-          </Button>
-        </DialogActions>
       </Dialog>
 
       {/* ===== PM Dialog ===== */}
-      <Dialog open={pmDialogOpen} onClose={() => setPmDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={pmDialogOpen} onClose={() => setPmDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { height: '90vh', maxHeight: '90vh', display: 'flex', flexDirection: 'column' } }}>
         <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           เลือก Project Manager
           <IconButton onClick={() => setPmDialogOpen(false)} sx={flatIconBtnSx}>
@@ -1010,7 +1014,7 @@ export default function CreateProjectTab(props) {
             fullWidth
             value={employeeSearch}
             onChange={(e) => setEmployeeSearch(e.target.value)}
-            sx={{ mb: 1, ...inputSx }}
+            sx={{ mt: 3, mb: 1, ...inputSx }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -1020,7 +1024,7 @@ export default function CreateProjectTab(props) {
             }}
           />
 
-          <List sx={{ mt: 0.5, maxHeight: 420, overflow: 'auto' }}>
+          <List sx={{ mt: 0.5, overflow: 'auto' }}>
             {filteredPmEmployees.map((emp) => {
               const idKey = emp.id;
               const checked = (pmSelection || []).some((x) => String(x) === String(idKey));
@@ -1037,7 +1041,7 @@ export default function CreateProjectTab(props) {
                   <ListItemIcon>
                     <Checkbox size="small" color="error" checked={checked} tabIndex={-1} disableRipple />
                   </ListItemIcon>
-                  <ListItemText primary={formatEmployee(emp)} secondary={emp.employee_code || ''} />
+                  <ListItemText primary={formatEmployee(emp)} />
                 </ListItemButton>
               );
             })}
@@ -1066,7 +1070,7 @@ export default function CreateProjectTab(props) {
       </Dialog>
 
       {/* ===== Team Dialog ===== */}
-      <Dialog open={teamDialogOpen} onClose={() => setTeamDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={teamDialogOpen} onClose={() => setTeamDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { height: '90vh', maxHeight: '90vh', display: 'flex', flexDirection: 'column' } }}>
         <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           เลือกสมาชิกในโครงการ
           <IconButton onClick={() => setTeamDialogOpen(false)} sx={flatIconBtnSx}>
@@ -1081,7 +1085,7 @@ export default function CreateProjectTab(props) {
             fullWidth
             value={teamSearch}
             onChange={(e) => setTeamSearch(e.target.value)}
-            sx={{ mb: 1, ...inputSx }}
+            sx={{ mt: 3, mb: 1, ...inputSx }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -1091,7 +1095,7 @@ export default function CreateProjectTab(props) {
             }}
           />
 
-          <List sx={{ mt: 0.5, maxHeight: 420, overflow: 'auto' }}>
+          <List sx={{ mt: 0.5,  overflow: 'auto' }}>
             {filteredTeamEmployees.map((emp) => {
               const idKey = emp.id;
               const checked = (teamSelection || []).some((x) => String(x) === String(idKey));
@@ -1108,7 +1112,7 @@ export default function CreateProjectTab(props) {
                   <ListItemIcon>
                     <Checkbox size="small" color="error" checked={checked} tabIndex={-1} disableRipple />
                   </ListItemIcon>
-                  <ListItemText primary={formatEmployee(emp)} secondary={emp.employee_code || ''} />
+                  <ListItemText primary={formatEmployee(emp)}  />
                 </ListItemButton>
               );
             })}

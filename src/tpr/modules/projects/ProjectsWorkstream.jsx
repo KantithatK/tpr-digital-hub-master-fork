@@ -144,29 +144,33 @@ function validatePlannedHoursText(v) {
 
 // ===== Workstream UI helpers (UI only, logic เดี๋ยวไปทำใน Projects.js) =====
 function StatusPill({ status }) {
+  const sTh = Projects?.normalizeWbsStatus ? Projects.normalizeWbsStatus(status) : String(status || '');
   const sRaw = String(status || '');
   const s = sRaw.toLowerCase();
 
   // mapping ตามภาพตัวอย่าง
   const map = {
-    // Thai statuses from SQL
+    // Canonical Thai WBS statuses
     'เสร็จแล้ว': { label: 'เสร็จแล้ว', dot: '#08d84c', bg: '#ffffff', border: '#08d84c', text: '#166534' },
-    'ล่าช้า': { label: 'ล่าช้า', dot: '#8B5CF6', bg: '#ffffff', border: '#8B5CF6', text: '#9f1239' },
-    'เสี่ยง': { label: 'เสี่ยง', dot: '#ff4059', bg: '#ffffff', border: '#ff4059', text: '#92400e' },
     'ยังไม่เริ่ม': { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
-    'ทำอยู่': { label: 'ทำอยู่', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
+    'กำลังทำ': { label: 'กำลังทำ', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
+    // legacy Thai
+    'ทำอยู่': { label: 'กำลังทำ', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
     planning: { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
+
+    // DB codes
+    NOT_STARTED: { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
+    IN_PROGRESS: { label: 'กำลังทำ', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
+    DONE: { label: 'เสร็จแล้ว', dot: '#08d84c', bg: '#ffffff', border: '#08d84c', text: '#166534' },
 
     // legacy normalized keys
     done: { label: 'เสร็จแล้ว', dot: '#22c55e', bg: '#ffffff', border: '#bbf7d0', text: '#166534' },
     ontrack: { label: 'เสร็จแล้ว', dot: '#22c55e', bg: '#ffffff', border: '#bbf7d0', text: '#166534' },
-    delayed: { label: 'ล่าช้า', dot: '#8B5CF6', bg: '#ffffff', border: '#8B5CF6', text: '#9f1239' },
-    risk: { label: 'เสี่ยง', dot: '#ff4059', bg: '#ffffff', border: '#ff4059', text: '#92400e' },
     pending: { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
-    doing: { label: 'ทำอยู่', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
+    doing: { label: 'กำลังทำ', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
   };
 
-  const cfg = map[sRaw] || map[s] || map.pending;
+  const cfg = map[sTh] || map[sRaw] || map[s] || map.pending;
 
   return (
     <Box
@@ -217,7 +221,7 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', width: 130 }}>สถานะ</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', width: 170 }}>ความคืบหน้า</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', display: { xs: 'none', md: 'table-cell' }, textAlign: 'center' }}>ช่วงเวลา</TableCell>
-            <TableCell sx={{ fontWeight: 700, color: 'text.secondary', textAlign: 'center', width: 110 }}>เข้า Work</TableCell>
+            <TableCell sx={{ fontWeight: 700, color: 'text.secondary', textAlign: 'center', width: 110 }}>แผนงาน</TableCell>
             <TableCell sx={{ fontWeight: 700, color: 'text.secondary', textAlign: 'center', width: 90 }}>จัดการ</TableCell>
           </TableRow>
         </TableHead>
@@ -251,7 +255,7 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
               const key = r.id || r.code || idx;
               const progressPct = clamp(Number(r.progressPct || 0), 0, 100);
 
-              
+
 
               return (
                 <TableRow
@@ -287,21 +291,23 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
                     {r.dateRange || '-'}
                   </TableCell>
                   <TableCell sx={{ textAlign: 'center' }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        try {
-                          onGoWorkRow?.(r);
-                        } catch {
-                          // ignore
-                        }
-                      }}
-                      sx={{ textTransform: 'none', borderRadius: 2, boxShadow: 'none', fontWeight: 700 }}
-                    >
-                      เข้า Work
-                    </Button>
+                    <Box>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          try {
+                            onGoWorkRow?.(r);
+                          } catch {
+                            // ignore
+                          }
+                        }}
+                        sx={{ textTransform: 'none', borderRadius: 2, boxShadow: 'none', fontWeight: 700 }}
+                      >
+                        เข้า Work
+                      </Button>
+                    </Box>
                   </TableCell>
 
                   <TableCell sx={{ textAlign: 'center' }}>
@@ -359,8 +365,7 @@ function WorkstreamsTable({ loading, rows, onRowClick, onEditRow, onDeleteRow, o
             <TableRow>
               <TableCell colSpan={8}>
                 <Box sx={{ py: 1 }}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 900 }}>ยังไม่มี Work</Typography>
-                  <Typography variant="caption" color="text.secondary">*กดปุ่ม + เพื่อเพิ่ม Work</Typography>
+
                 </Box>
               </TableCell>
             </TableRow>
@@ -424,7 +429,7 @@ function MiniBars({ color = '#64748b', values = [0.3, 0.55, 0.75], height = 34, 
 // NOTE: keep the original signals code in file but do not render the old Paper.
 const SHOW_SIGNALS = false;
 
-// Temporary feature flag: ซ่อนแผง 'ความคืบหน้า vs งบที่ใช้ไป' ชั่วคราว
+// Temporary feature flag: ซ่อนแผง 'ความคืบหน้า vs งบที่ใช้ไปแล้ว' ชั่วคราว
 const SHOW_PV = true;
 // (No demo/sample data in this file) - loader uses real DB only
 
@@ -458,7 +463,6 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
 
   const projectId = project?.id || null;
   const projectName = project?.name_th || project?.name || project?.name_en || '';
-  const updatedAt = project?.updated_at || project?.created_at || project?.start_date || project?.start || '-';
   const budgetTotalNum = Number(project?.budget || 0);
 
   const projectStartISO = project?.start_date || '';
@@ -471,7 +475,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     loading: false,
     error: null,
 
-    status: project?.status || 'Planning',
+    status: Projects?.normalizeWbsStatus ? Projects.normalizeWbsStatus(project?.status) : (project?.status || 'ยังไม่เริ่ม'),
 
     progressPct: 0,
     progressDone: 0,
@@ -539,6 +543,9 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
   const [workSummary, setWorkSummary] = React.useState(null);
   const [workLine, setWorkLine] = React.useState(null);
 
+  // operating expense total (project-level)
+  const [operatingSpentTotal, setOperatingSpentTotal] = React.useState(null);
+
   const handleNotifOpen = React.useCallback((e) => {
     setNotifAnchor(e.currentTarget || e.target || null);
   }, []);
@@ -588,7 +595,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
 
       const wsRows = await Projects.getWorkstreamsForProject(supabase, projectId);
 
-      const mapped = (Array.isArray(wsRows) ? wsRows : []).map((r) => {
+      const initial = (Array.isArray(wsRows) ? wsRows : []).map((r) => {
         const raw = Number(r?.progress ?? 0);
         const progressPct = raw <= 1 ? raw * 100 : raw;
 
@@ -616,10 +623,19 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         };
       });
 
-      setWorkstreamsState({ loading: false, total: mapped.length, rows: mapped });
+      // load operating expense (project-level) once for KPI box
+      try {
+        const opsRes = await Projects.getOperatingExpenseByWorkstream({ projectId, supabase });
+        setOperatingSpentTotal(Number(opsRes?.totalAmount || 0));
+      } catch {
+        setOperatingSpentTotal(0);
+      }
+
+      setWorkstreamsState({ loading: false, total: initial.length, rows: initial });
     } catch (e) {
       console.error('reloadWorkstreams error:', e);
       setWorkstreamsState({ loading: false, total: 0, rows: [] });
+      setOperatingSpentTotal(0);
     }
   }, [fmtThaiRange, projectId]);
 
@@ -668,6 +684,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
   }, []);
 
   const openEditWorkDialog = React.useCallback((row) => {
+    const statusTh = Projects?.normalizeWbsStatus ? Projects.normalizeWbsStatus(row?.status) : (row?.status || 'ยังไม่เริ่ม');
     setWorkDialog({
       open: true,
       mode: 'edit',
@@ -678,7 +695,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         id: row?.id || null,
         code: row?.code || '',
         name: row?.name || '',
-        status: row?.status || 'ยังไม่เริ่ม',
+        status: statusTh || 'ยังไม่เริ่ม',
         start_date: row?.start_date || '',
         end_date: row?.end_date || '',
         planned_hours: row?.planned_hours != null ? String(Number(row.planned_hours)) : '',
@@ -839,7 +856,8 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     const form = workDialog.form || {};
     const code = String(form.code || '').trim();
     const name = String(form.name || '').trim();
-    const status = String(form.status || 'ยังไม่เริ่ม');
+    const statusTh = Projects?.normalizeWbsStatus ? Projects.normalizeWbsStatus(form.status) : String(form.status || 'ยังไม่เริ่ม');
+    const statusDb = statusTh === 'เสร็จแล้ว' ? 'DONE' : statusTh === 'กำลังทำ' ? 'IN_PROGRESS' : 'NOT_STARTED';
 
     if (!code || !name) {
       window.alert('กรุณากรอก รหัส และ ชื่อ Work');
@@ -879,7 +897,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       const payload = {
         code,
         name,
-        status,
+        status: statusDb,
         start_date: form.start_date || null,
         end_date: form.end_date || null,
         planned_hours: planned_hours_num === null ? null : (Number.isFinite(planned_hours_num) ? planned_hours_num : 0),
@@ -1187,6 +1205,19 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
     ? clamp(Math.round((displayWipAmount / Number(workSummary.budgetTotal || 0)) * 100), 0, 100)
     : wipPct;
 
+  // Operational WIP (ค่าดำเนินการ) — project-level only
+  const displayOpsWipAmount = operatingSpentTotal != null
+    ? Number(operatingSpentTotal || 0)
+    : (workSummary ? Number(workSummary.operatingSpentTotal || 0) : 0);
+
+  const opsBudgetBase = workSummary && Number(workSummary.budgetTotal || 0) > 0
+    ? Number(workSummary.budgetTotal || 0)
+    : budgetTotalNum;
+
+  const displayOpsWipPct = opsBudgetBase > 0
+    ? clamp(Math.round((displayOpsWipAmount / opsBudgetBase) * 100), 0, 100)
+    : 0;
+
   const pvProgressPct = clamp(kpi.pv_progressPct, 0, 100);
   const pvUsedPct = clamp(kpi.pv_usedPct, 0, 100);
 
@@ -1213,7 +1244,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         formatter: (val) => `${Math.round(Number(val || 0))}%`,
       },
       xaxis: {
-        categories: ['ความคืบหน้า', 'งบที่ใช้ไป'],
+        categories: ['ความคืบหน้า', 'ค่าบุคลากรใช้ไป'],
         min: 0,
         max: 100,
         labels: { formatter: (val) => `${Math.round(Number(val || 0))}%` },
@@ -1279,16 +1310,12 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               color: 'text.secondary',
               '&:hover': { bgcolor: 'transparent', textDecoration: 'underline' },
             }}
-          > 
+          >
             โครงการ
           </Button>
           <Box sx={{ opacity: 0.55, color: 'text.secondary' }}>›</Box>
           <Typography variant="body2" color="text.secondary" title={projectName || ''} sx={{ maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {truncateText(projectName, 40) || '-'}
-          </Typography>
-          <Box sx={{ opacity: 0.55, color: 'text.secondary' }}>·</Box>
-          <Typography variant="body2" color="text.secondary">
-            แดชบอร์ด
           </Typography>
         </Stack>
       )}
@@ -1333,7 +1360,6 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                 color: 'text.primary',
                 '&:hover': { borderColor: 'grey.300', bgcolor: 'grey.50', boxShadow: 'none' },
               }}
-              startIcon={<OfflineBoltIcon />}
             >
               แก้ไขข้อมูล
             </Button>
@@ -1351,7 +1377,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               </IconButton>
             </Tooltip>
 
-           
+
           </Stack>
         )}
       </Stack>
@@ -1384,7 +1410,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                     <ListItemText
                       primary={s?.title || 'แจ้งเตือน'}
                       secondary={s?.detail || ''}
-                      primaryTypographyProps={{ sx: { fontWeight: 800 } }}
+                      primaryTypographyProps={{ sx: { fontWeight: 500 } }}
                       secondaryTypographyProps={{ sx: { fontSize: 12 } }}
                     />
                   </ListItem>
@@ -1393,7 +1419,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
             </List>
           ) : (
             <Box sx={{ p: 1 }}>
-              <Typography sx={{ fontWeight: 700 }}>ไม่มีสัญญาณผิดปกติ</Typography>
+              <Typography sx={{ fontWeight: 500 }}>ไม่มีสัญญาณผิดปกติ</Typography>
             </Box>
           )}
         </Box>
@@ -1409,7 +1435,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
         }}
       >
         {/* สถานะโครงการ */}
-        <Paper elevation={0} sx={kpiPaperSx}>
+        {/* <Paper elevation={0} sx={kpiPaperSx}>
           {kpi.loading ? (
             <>
               <Skeleton variant="text" width={90} height={20} />
@@ -1433,11 +1459,13 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                 {Projects.statusThFromDerived(kpi.status)}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                *อัปเดต: {String(updatedAt).slice(0, 10)}
+                อัปเดต: {String(updatedAt).slice(0, 10)}
               </Typography>
             </>
           )}
-        </Paper>
+        </Paper> */}
+
+        
 
         {/* ความคืบหน้า */}
         <Paper elevation={0} sx={kpiPaperSx}>
@@ -1458,7 +1486,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                     {`${displayProgressPct}%`}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {`*${displayProgressDone}/${displayProgressTotal} Work`}
+                    {`${displayProgressDone}/${displayProgressTotal} Work`}
                   </Typography>
                 </>
               )}
@@ -1485,13 +1513,13 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               ) : (
                 <>
                   <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
-                    WIP
+                    ค่าบุคลากรใช้ไป
                   </Typography>
                   <Typography sx={{ fontSize: 26, fontWeight: 900, mt: 0.5, color: '#fdca01', lineHeight: 1.15 }}>
                     {formatMoneyTHB(displayWipAmount)}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {Number(workSummary?.budgetTotal || 0) > 0 ? `*${displayWipPct}% ของงบ` : (displayWipAmount > 0 ? '*ต้องติดตาม' : '*—')}
+                    {Number(workSummary?.budgetTotal || 0) > 0 ? `*${displayWipPct}% ของค่าบุคลากร` : (displayWipAmount > 0 ? '*ต้องติดตาม' : '0% ของค่าบุคลากร')}
                   </Typography>
                 </>
               )}
@@ -1501,6 +1529,39 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               <Skeleton variant="rectangular" width={44} height={34} />
             ) : (
               <MiniBars variant="wave" color="#fdca01" values={[displayWipPct / 140, displayWipPct / 115, displayWipPct / 100]} height={34} />
+            )}
+          </Box>
+        </Paper>
+
+        {/* Operational WIP (placeholder) */}
+        <Paper elevation={0} sx={kpiPaperSx}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.5 }}>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              {kpi.loading ? (
+                <>
+                  <Skeleton variant="text" width={40} height={20} />
+                  <Skeleton variant="text" width={120} height={36} sx={{ mt: 0.5 }} />
+                  <Skeleton variant="text" width={120} height={16} sx={{ mt: 0.5 }} />
+                </>
+              ) : (
+                <>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    ค่าดำเนินการที่ใช้ไป
+                  </Typography>
+                  <Typography sx={{ fontSize: 26, fontWeight: 900, mt: 0.5, color: '#ff4059', lineHeight: 1.15 }}>
+                    {formatMoneyTHB(displayOpsWipAmount)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {opsBudgetBase > 0 ? `*${displayOpsWipPct}% ของค่าดำเนินการ` : (displayOpsWipAmount > 0 ? '*ต้องติดตาม' : '0% ของค่าดำเนินการ')}
+                  </Typography>
+                </>
+              )}
+            </Box>
+
+            {kpi.loading ? (
+              <Skeleton variant="rectangular" width={44} height={34} />
+            ) : (
+              <MiniBars variant="wave" color="#ff4059" values={[displayOpsWipPct / 140, displayOpsWipPct / 115, displayOpsWipPct / 100]} height={34} />
             )}
           </Box>
         </Paper>
@@ -1524,7 +1585,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                     {formatMoneyTHB(ar)}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {budgetTotalNum > 0 ? `*${arPct}% ของงบ` : ar > 0 ? '*ต้องติดตาม' : '*ปกติ'}
+                    {budgetTotalNum > 0 ? `${arPct}% ของงบ` : ar > 0 ? 'ต้องติดตาม' : 'ปกติ'}
                   </Typography>
                 </>
               )}
@@ -1549,7 +1610,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
           mb: 2,
         }}
       >
-        {/* ซ้าย: เทียบความคืบหน้า vs งบที่ใช้ไป (ซ่อนไว้ชั่วคราว) */}
+        {/* ซ้าย: เทียบความคืบหน้า vs งบที่ใช้ไปแล้ว (ซ่อนไว้ชั่วคราว) */}
         {SHOW_PV ? (
           <Paper
             elevation={0}
@@ -1576,7 +1637,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               <>
                 <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
                   <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
-                    ความคืบหน้า vs งบที่ใช้ไป
+                    ความคืบหน้า vs ค่าบุคลากรใช้ไป
                   </Typography>
                   <Typography
                     component="div"
@@ -1611,9 +1672,9 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
 
                 <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1 }}>
                   <Typography variant="caption" color="text.secondary">
-                    {`ส่วนต่าง (ความคืบหน้า - งบที่ใช้ไป) ${Number.isFinite(Number(kpi.pv_deltaPct))
-                        ? `${kpi.pv_deltaPct >= 0 ? '+' : ''}${kpi.pv_deltaPct}%`
-                        : '—'
+                    {`ส่วนต่าง (ความคืบหน้า - ค่าบุคลากรใช้ไป) ${Number.isFinite(Number(kpi.pv_deltaPct))
+                      ? `${kpi.pv_deltaPct >= 0 ? '+' : ''}${kpi.pv_deltaPct}%`
+                      : '—'
                       }`}
                   </Typography>
                   <Typography
@@ -1700,9 +1761,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               <Typography sx={{ fontWeight: 900, fontSize: 15 }}>
                 รายการ Work
               </Typography>
-              <Typography variant="caption" color="text.secondary">
-                กดแถวเพื่อเข้าดูรายละเอียด Work
-              </Typography>
+            
             </Box>
 
             <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -1847,7 +1906,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
           <Stack spacing={1.5} sx={{ mt: 1 }}>
             {workDialog.mode === 'create' ? (
               <TextField
-                sx={{display:'none'}}
+                sx={{ display: 'none' }}
                 size="small"
                 label="รหัส Work"
                 value={workDialog.form.code}
@@ -1867,7 +1926,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
             />
             {workDialog.mode === 'create' ? (
               <TextField
-                sx={{display:'none'}}
+                sx={{ display: 'none' }}
                 size="small"
                 select
                 label="สถานะ"
@@ -1875,7 +1934,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
                 onChange={(e) => setWorkDialog((prev) => ({ ...prev, form: { ...prev.form, status: e.target.value } }))}
                 fullWidth
               >
-                {['ยังไม่เริ่ม', 'ทำอยู่', 'เสี่ยง', 'ล่าช้า', 'เสร็จแล้ว'].map((s) => (
+                {['ยังไม่เริ่ม', 'กำลังทำ', 'เสร็จแล้ว'].map((s) => (
                   <MenuItem key={s} value={s}>
                     {s}
                   </MenuItem>
@@ -1931,7 +1990,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               </Stack>
             </LocalizationProvider>
             <TextField
-              sx={{display:'none'}}
+              sx={{ display: 'none' }}
               size="small"
               label="ชั่วโมงที่วางแผน"
               type="number"
@@ -1954,7 +2013,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
               fullWidth
             />
             <TextField
-              sx={{display:'none'}}
+              sx={{ display: 'none' }}
               size="small"
               label="งบประมาณ"
               type="number"
@@ -1988,7 +2047,7 @@ export default function ProjectsDashboard({ project, onBack, onEdit, onGoWork })
       <Dialog open={deleteDialog.open} onClose={cancelDelete} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>ยืนยันการลบ</DialogTitle>
         <DialogContent>
-          <Typography>ลบ Work "{deleteDialog.target?.name || deleteDialog.target?.code || ''}" หรือไม่? (Work จะถูกซ่อนไว้)</Typography>
+          <Typography>ลบ Work "{deleteDialog.target?.name || deleteDialog.target?.code || ''}" หรือไม่?</Typography>
         </DialogContent>
         <DialogActions>
           <Button

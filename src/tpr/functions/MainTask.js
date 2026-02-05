@@ -1,12 +1,13 @@
 // ===== src/tpr/functions/MainTask.js (แทนทั้งไฟล์) =====
 // Logic layer for "งานหลัก" (tpr_project_wbs_tasks)
 // - CRUD
-// - multi owners (tpr_project_wbs_main_task_owners)
+// - multi owners (tpr_project_wbs_main_task_owners) => employee_id = employees.id (ห้ามใช้ auth.users)
 // - code generator
 // - date range validation within Phase
 // - workday calculations (Mon–Fri) with 8h/day
 
 import { supabase } from "../../lib/supabaseClient";
+import Projects from "./Projects";
 
 const TABLE_TASKS = "tpr_project_wbs_tasks";
 const TABLE_PHASES = "tpr_project_wbs_phases";
@@ -15,6 +16,89 @@ const TABLE_PROJECT_MEMBERS = "tpr_project_members";
 
 const HOURS_PER_DAY = 8;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function clampPct(v) {
+  if (Projects && typeof Projects.clampPct === "function") return Projects.clampPct(v);
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function normalizeWbsStatus(v) {
+  if (Projects && typeof Projects.normalizeWbsStatus === "function") return Projects.normalizeWbsStatus(v);
+  const s = String(v || "").trim();
+  return s || "ยังไม่เริ่ม";
+}
+
+function deriveStatusFromProgress(pct) {
+  if (Projects && typeof Projects.deriveStatusFromProgress === "function") return Projects.deriveStatusFromProgress(pct);
+  const p = clampPct(pct);
+  if (p <= 0) return "ยังไม่เริ่ม";
+  if (p >= 100) return "เสร็จแล้ว";
+  return "กำลังทำ";
+}
+
+function toDbWbsStatusCode(anyStatus) {
+  const th = normalizeWbsStatus(anyStatus);
+  if (th === "เสร็จแล้ว") return "DONE";
+  if (th === "กำลังทำ") return "IN_PROGRESS";
+  return "NOT_STARTED";
+}
+
+function normalizeTaskRow(row) {
+  const r = row || {};
+  const progress = clampPct(r.progress ?? 0);
+
+  // NOTE: ใน DB status เป็นโค้ด (NOT_STARTED/IN_PROGRESS/DONE)
+  // UI ของคุณใช้ไทยผ่าน metadata.status เป็นหลัก
+  // เพื่อไม่ทำให้ UI เพี้ยน ให้คืน status เป็น "ไทย" จาก progress เป็น fallback
+  const statusTh = deriveStatusFromProgress(progress);
+
+  return { ...r, progress, status: statusTh };
+}
+
+function uniqStrings(list) {
+  const out = [];
+  const seen = new Set();
+  for (const x of Array.isArray(list) ? list : []) {
+    const s = String(x || "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function prepareTaskWritePayload(payload, { forCreate }) {
+  const src = payload || {};
+
+  const hasProgress = src.progress !== undefined && src.progress !== null && String(src.progress) !== "";
+  const hasStatus = src.status !== undefined && src.status !== null && String(src.status) !== "";
+
+  let nextProgress = hasProgress ? clampPct(src.progress) : undefined;
+
+  if (!hasProgress && hasStatus) {
+    const st = normalizeWbsStatus(src.status);
+    if (st === "เสร็จแล้ว") nextProgress = 100;
+    else if (st === "ยังไม่เริ่ม") nextProgress = 0;
+  }
+
+  if (!hasProgress && !hasStatus && forCreate) nextProgress = 0;
+
+  const statusTh =
+    nextProgress !== undefined
+      ? deriveStatusFromProgress(nextProgress)
+      : hasStatus
+        ? normalizeWbsStatus(src.status)
+        : undefined;
+
+  const statusCode = statusTh !== undefined ? toDbWbsStatusCode(statusTh) : undefined;
+
+  const out = { ...src };
+  if (nextProgress !== undefined) out.progress = nextProgress;
+  if (statusCode !== undefined) out.status = statusCode;
+  return out;
+}
 
 /* ================= helpers ================= */
 
@@ -79,9 +163,9 @@ function countWorkdaysInclusive(startISO, endISO) {
 
 export function genTaskCode(prefix = "TS") {
   const d = new Date();
-  return `${prefix}-${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(
-    d.getDate()
-  )}-${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+  return `${prefix}-${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(
+    d.getMinutes()
+  )}${pad2(d.getSeconds())}`;
 }
 
 /* ===== Phase ===== */
@@ -99,12 +183,7 @@ export async function getPhaseBounds({ phaseId, supabaseClient = supabase }) {
   return data || null;
 }
 
-export function validateTaskRangeWithinPhase({
-  start_date,
-  end_date,
-  phase_start,
-  phase_end,
-}) {
+export function validateTaskRangeWithinPhase({ start_date, end_date, phase_start, phase_end }) {
   const sMs = parseISODateOnlyToMs(start_date);
   const eMs = parseISODateOnlyToMs(end_date);
 
@@ -150,23 +229,29 @@ export async function listTasks({
 
   const { data: tasks, error } = await q;
   if (error) throw error;
-  if (!withOwners || !tasks?.length) return tasks || [];
+  if (!withOwners || !tasks?.length) return (tasks || []).map(normalizeTaskRow);
 
   const taskIds = tasks.map((t) => t.id);
 
-  const { data: owners } = await supabaseClient
+  // NOTE: employee_id ในตาราง owners ตอนนี้คือ employees.id แล้ว (ตาม requirement)
+  const { data: owners, error: oErr } = await supabaseClient
     .from(TABLE_TASK_OWNERS)
-    .select("task_id, user_id, role")
+    .select("task_id, employee_id, role")
     .in("task_id", taskIds);
+
+  if (oErr) throw oErr;
 
   const map = {};
   for (const o of owners || []) {
     if (!map[o.task_id]) map[o.task_id] = [];
-    map[o.task_id].push(o);
+    map[o.task_id].push({
+      ...o,
+      employee_id: String(o?.employee_id || "").trim() || null, // = employees.id
+    });
   }
 
-  return tasks.map((t) => ({
-    ...t,
+  return (tasks || []).map((t) => ({
+    ...normalizeTaskRow(t),
     owners: map[t.id] || [],
   }));
 }
@@ -176,7 +261,6 @@ export async function listTasks({
 export async function listProjectMembers({ projectId, supabaseClient = supabase } = {}) {
   if (!projectId) return [];
 
-  // 1) Get member employee_ids
   const { data: memRows, error: memErr } = await supabaseClient
     .from(TABLE_PROJECT_MEMBERS)
     .select("employee_id")
@@ -186,20 +270,16 @@ export async function listProjectMembers({ projectId, supabaseClient = supabase 
   if (memErr) throw memErr;
 
   const memberIds = Array.isArray(memRows)
-    ? memRows
-        .map((r) => String(r?.employee_id || "").trim())
-        .filter(Boolean)
+    ? memRows.map((r) => String(r?.employee_id || "").trim()).filter(Boolean)
     : [];
 
   const uniqIds = Array.from(new Set(memberIds));
   if (!uniqIds.length) return [];
 
-  // 2) Load employees by ids (chunked to avoid URL length / IN-list limits)
+  // chunked IN
   const chunkSize = 1000;
   const chunks = [];
-  for (let i = 0; i < uniqIds.length; i += chunkSize) {
-    chunks.push(uniqIds.slice(i, i + chunkSize));
-  }
+  for (let i = 0; i < uniqIds.length; i += chunkSize) chunks.push(uniqIds.slice(i, i + chunkSize));
 
   const allEmployees = [];
   for (const ids of chunks) {
@@ -209,6 +289,7 @@ export async function listProjectMembers({ projectId, supabaseClient = supabase 
         "id, employee_code, title_th, first_name_th, last_name_th, title_en, first_name_en, last_name_en, nickname_th, nickname_en"
       )
       .in("id", ids);
+
     if (empErr) throw empErr;
     if (Array.isArray(emps) && emps.length) allEmployees.push(...emps);
   }
@@ -248,42 +329,40 @@ export async function listProjectMembers({ projectId, supabaseClient = supabase 
   return list;
 }
 
-export async function createTask(
-  { owners = [], ...payload },
-  supabaseClient = supabase
-) {
+export async function createTask({ owners = [], ...payload }, supabaseClient = supabase) {
+  const clean = prepareTaskWritePayload(payload, { forCreate: true });
+
   const { data: task, error } = await supabaseClient
     .from(TABLE_TASKS)
-    .insert([payload])
+    .insert([clean])
     .select("*")
     .single();
 
   if (error) throw error;
 
-  if (Array.isArray(owners) && owners.length > 0) {
-    const rows = owners.map((user_id) => ({
+  const ownerEmpIds = uniqStrings(owners); // owners = employees.id จาก UI
+  if (ownerEmpIds.length > 0) {
+    const rows = ownerEmpIds.map((employeeId) => ({
       task_id: task.id,
-      user_id,
+      employee_id: employeeId, // IMPORTANT: employee_id = employees.id
+      role: "owner",
     }));
-    const { error: oe } = await supabaseClient
-      .from(TABLE_TASK_OWNERS)
-      .insert(rows);
+
+    const { error: oe } = await supabaseClient.from(TABLE_TASK_OWNERS).insert(rows);
     if (oe) throw oe;
   }
 
-  return task;
+  return normalizeTaskRow(task);
 }
 
-export async function updateTask(
-  id,
-  { owners = null, ...payload },
-  supabaseClient = supabase
-) {
+export async function updateTask(id, { owners = null, ...payload }, supabaseClient = supabase) {
   if (!id) throw new Error("Missing task id");
+
+  const clean = prepareTaskWritePayload(payload, { forCreate: false });
 
   const { data: task, error } = await supabaseClient
     .from(TABLE_TASKS)
-    .update(payload)
+    .update(clean)
     .eq("id", id)
     .select("*")
     .single();
@@ -291,43 +370,36 @@ export async function updateTask(
   if (error) throw error;
 
   if (Array.isArray(owners)) {
-    await supabaseClient
-      .from(TABLE_TASK_OWNERS)
-      .delete()
-      .eq("task_id", id);
+    // replace owners set
+    const { error: de } = await supabaseClient.from(TABLE_TASK_OWNERS).delete().eq("task_id", id);
+    if (de) throw de;
 
-    if (owners.length > 0) {
-      const rows = owners.map((user_id) => ({
+    const ownerEmpIds = uniqStrings(owners);
+    if (ownerEmpIds.length > 0) {
+      const rows = ownerEmpIds.map((employeeId) => ({
         task_id: id,
-        user_id,
+        employee_id: employeeId, // employees.id
+        role: "owner",
       }));
-      const { error: oe } = await supabaseClient
-        .from(TABLE_TASK_OWNERS)
-        .insert(rows);
+
+      const { error: oe } = await supabaseClient.from(TABLE_TASK_OWNERS).insert(rows);
       if (oe) throw oe;
     }
   }
 
-  return task;
+  return normalizeTaskRow(task);
 }
 
 export async function deleteTask(id, supabaseClient = supabase) {
   if (!id) throw new Error("Missing task id");
-  const { error } = await supabaseClient
-    .from(TABLE_TASKS)
-    .delete()
-    .eq("id", id);
+  const { error } = await supabaseClient.from(TABLE_TASKS).delete().eq("id", id);
   if (error) throw error;
   return true;
 }
 
 /* ===== Workday calculations ===== */
 
-export async function calcTaskEndDateFromPlannedHours({
-  start_date,
-  planned_hours,
-  boundary_end,
-}) {
+export async function calcTaskEndDateFromPlannedHours({ start_date, planned_hours, boundary_end }) {
   const hours = Number(planned_hours || 0);
   if (!start_date || !Number.isFinite(hours) || hours <= 0) {
     return { ok: false, messageTh: "ข้อมูลไม่ครบ" };
@@ -346,11 +418,7 @@ export async function calcTaskEndDateFromPlannedHours({
   return { ok: true, startISO: start_date, endISO };
 }
 
-export async function calcTaskPlannedHoursFromDates({
-  start_date,
-  end_date,
-}) {
+export async function calcTaskPlannedHoursFromDates({ start_date, end_date }) {
   const wd = countWorkdaysInclusive(start_date, end_date);
   return { ok: true, planned_hours: wd * HOURS_PER_DAY };
 }
- 

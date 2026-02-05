@@ -3,8 +3,8 @@ import * as React from 'react';
 
 
 import CreateProjectTab from './CreateProjectTab';
-import ProjectsDashboard from './ProjectsDashboard';
-import ProjectWorkstream from './ProjectWorkstream';
+import ProjectsDashboard from './ProjectsWorkstream';
+import ProjectWorkstream from './ProjectPhase';
 import ProjectMainTask from './ProjectMainTask';
 import ProjectSubTask from './ProjectSubTask';
 
@@ -204,7 +204,8 @@ export default function ProjectsList(props) {
     parent_project_id: 'MAIN',
     contract_type: 'Fixed Fee',
     budget: '',
-    status: 'Planning',
+    // Canonical Thai status (DB stores NOT_STARTED/IN_PROGRESS/DONE)
+    status: 'ยังไม่เริ่ม',
 
     image_path: '',
     initial_team_ids: [],
@@ -280,7 +281,7 @@ export default function ProjectsList(props) {
       parent_project_id: 'MAIN',
       contract_type: 'Fixed Fee',
       budget: '',
-      status: 'Planning',
+      status: 'ยังไม่เริ่ม',
 
       image_path: '',
       initial_team_ids: [],
@@ -293,6 +294,8 @@ export default function ProjectsList(props) {
   // ✅ รองรับเติม initial_team_ids ตอนแก้ไข
   const setFormFromProject = React.useCallback((p, initialTeamIds = []) => {
     if (!p) return;
+
+    const projectId = p?.id ?? p?.projectId ?? p?.project_id ?? null;
 
     const custRec = (customers || []).find(
       (x) => String(x.id) === String(p.customer_id) || String(x.customer_id) === String(p.customer_id)
@@ -309,7 +312,7 @@ export default function ProjectsList(props) {
 
     setDialogForm((prev) => ({
       ...prev,
-      id: p.id ?? null,
+      id: projectId,
       code: p.project_code || p.code || '',
       name: p.name_th || p.name || p.name_en || '',
       name_en: p.name_en || '',
@@ -321,8 +324,8 @@ export default function ProjectsList(props) {
       client: p.customer_name || (custRec ? (custRec.name_th || custRec.name_en || '') : ''),
       clientTitle: p.customer_code || (custRec ? custRec.customer_id : ''),
 
-      start: p.start_date || '',
-      end: p.end_date || '',
+      start: p.start_date || p.start || p.startDate || '',
+      end: p.end_date || p.end || p.endDate || '',
 
       // legacy
       principal_id: p.principal_id || null,
@@ -342,7 +345,7 @@ export default function ProjectsList(props) {
       parent_project_id: p.parent_project_id ? String(p.parent_project_id) : 'MAIN',
       contract_type: contractType,
       budget: p.budget != null ? String(Number(p.budget)) : '',
-      status: p.status || 'Planning',
+      status: Projects.normalizeWbsStatus ? Projects.normalizeWbsStatus(p.status) : (p.status || 'ยังไม่เริ่ม'),
 
       image_path: p.image_path || '',
 
@@ -440,7 +443,9 @@ export default function ProjectsList(props) {
   const filtered = (projects || []).filter((p) => {
     const q = (search || '').trim().toLowerCase();
     if (filterStatus) {
-      if (String(p.status || '') !== String(filterStatus)) return false;
+      const ps = Projects.normalizeWbsStatus ? Projects.normalizeWbsStatus(p.status) : String(p.status || '');
+      const fs = Projects.normalizeWbsStatus ? Projects.normalizeWbsStatus(filterStatus) : String(filterStatus || '');
+      if (String(ps) !== String(fs)) return false;
     }
     if (!q) return true;
     const code = String(p.project_code || p.code || '').toLowerCase();
@@ -608,8 +613,32 @@ export default function ProjectsList(props) {
   // ✅ หลังจาก CreateProjectTab สร้างสำเร็จ -> update list + เลือกโปรเจค + ไปหน้าแดชบอร์ดโครงการ
   const handleCreated = (created) => {
     if (!created) return;
-    setProjects((prev) => [created, ...(prev || [])]);
-    setSelectedProject(created);
+
+    const createdId = created?.id ?? created?.projectId ?? created?.project_id ?? null;
+
+    setProjects((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      if (!createdId) return [created, ...list];
+
+      const idx = list.findIndex((x) => {
+        const xId = x?.id ?? x?.projectId ?? x?.project_id ?? null;
+        return xId != null && String(xId) === String(createdId);
+      });
+
+      if (idx >= 0) {
+        const next = [...list];
+        next[idx] = { ...next[idx], ...created };
+        return next;
+      }
+
+      return [created, ...list];
+    });
+
+    setSelectedProject((prev) => {
+      const prevId = prev?.id ?? prev?.projectId ?? prev?.project_id ?? null;
+      if (createdId && prevId != null && String(prevId) === String(createdId)) return { ...prev, ...created };
+      return created;
+    });
     gotoTab(TAB.DASHBOARD);
   };
 
@@ -802,7 +831,7 @@ export default function ProjectsList(props) {
                     textTransform: 'none',
                     borderColor: 'rgba(2,6,23,0.12)',
                     color: '#0f172a',
-                    bgcolor: '#fff',
+                    bgcolor: '#fff', 
                   }}
                 >
                   {filterStatus ? Projects.statusTh(filterStatus) : 'ตัวกรอง'}
@@ -818,6 +847,7 @@ export default function ProjectsList(props) {
                     borderColor: 'rgba(2,6,23,0.12)',
                     color: '#0f172a',
                     bgcolor: '#fff',
+                    display: 'none',
                   }}
                 >
                   ส่งออก CSV
@@ -838,7 +868,7 @@ export default function ProjectsList(props) {
                   >
                     ทั้งหมด
                   </MenuItem>
-                  {['Planning', 'Active', 'Completed'].map((st) => (
+                  {['ยังไม่เริ่ม', 'กำลังทำ', 'เสร็จแล้ว'].map((st) => (
                     <MenuItem
                       key={st}
                       onClick={() => {
@@ -852,10 +882,10 @@ export default function ProjectsList(props) {
                             width: 8,
                             height: 8,
                             borderRadius: '50%',
-                            bgcolor: st === 'Active' ? '#08d84c' : st === 'Completed' ? '#8B5CF6' : '#fdca01',
+                            bgcolor: st === 'กำลังทำ' ? '#08d84c' : st === 'เสร็จแล้ว' ? '#8B5CF6' : '#fdca01',
                           }}
                         />
-                        {Projects.statusTh(st)}
+                        {st}
                       </Box>
                     </MenuItem>
                   ))}
@@ -937,13 +967,13 @@ export default function ProjectsList(props) {
                       const projectStart = (p.start_date ?? p.start) || '';
                       const projectEnd = (p.end_date ?? p.end) || '';
 
-                      const s = String(p.status || '');
+                      const sTh = Projects.normalizeWbsStatus ? Projects.normalizeWbsStatus(p.status) : String(p.status || '');
                       const statusStyles =
-                        s === 'Active'
-                          ? { color: '#08d84c', bgcolor: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.25)' }
-                          : s === 'Completed'
-                            ? { color: '#8B5CF6', bgcolor: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.25)' }
-                            : { color: '#fdca01', bgcolor: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.25)' };
+                        sTh === 'กำลังทำ'
+                          ? { color: '#08d84c', bgcolor: '#ffffff', borderColor: '#08d84c' }
+                          : sTh === 'เสร็จแล้ว'
+                            ? { color: '#8B5CF6', bgcolor: '#ffffff', borderColor: '#8B5CF6' }
+                            : { color: '#fdca01', bgcolor: '#ffffff', borderColor: '#fdca01' };
 
                       return (
                         <TableRow
@@ -993,7 +1023,7 @@ export default function ProjectsList(props) {
                               label={
                                 <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
                                   <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: statusStyles.color }} />
-                                  <Box sx={{ fontWeight: 500, fontSize: 13 }}>{Projects.statusTh(p.status) || p.status || '-'}</Box>
+                                    <Box sx={{ fontWeight: 500, fontSize: 13 }}>{sTh || '-'}</Box>
                                 </Box>
                               }
                               variant="outlined"

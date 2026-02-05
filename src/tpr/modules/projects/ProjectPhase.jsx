@@ -40,6 +40,7 @@ import dayjs from 'dayjs';
 import ReactApexChart from 'react-apexcharts';
 
 import * as Workstream from '../../functions/workstream';
+import Projects from '../../functions/Projects';
 
 const BRAND = '#ff4059';
 
@@ -53,9 +54,7 @@ try {
 // status -> color map (module-level so it's stable for hooks)
 const STATUS_COLORS = {
   'ยังไม่เริ่ม': '#64748B',
-  'ทำอยู่': '#fdca01',
-  'เสี่ยง': '#ff4059',
-  'ล่าช้า': '#8B5CF6',
+  'กำลังทำ': '#fdca01',
   'เสร็จแล้ว': '#08d84c',
 };
 
@@ -83,9 +82,14 @@ function fmtThaiRange(startISO, endISO) {
 }
 
 function compactPhaseStatus(status) {
+  if (Projects?.normalizeWbsStatus) return Projects.normalizeWbsStatus(status);
   const s = String(status || '').trim();
   if (!s) return 'ยังไม่เริ่ม';
   if (s === 'Planning') return 'ยังไม่เริ่ม';
+  if (s === 'ทำอยู่') return 'กำลังทำ';
+  if (s === 'IN_PROGRESS') return 'กำลังทำ';
+  if (s === 'DONE') return 'เสร็จแล้ว';
+  if (s === 'NOT_STARTED') return 'ยังไม่เริ่ม';
   return s;
 }
 
@@ -173,7 +177,7 @@ function KpiTile({ label, value, sub, color }) {
         bgcolor: '#fff',
       }}
     >
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 800 }}>
         {label}
       </Typography>
       <Typography
@@ -199,25 +203,27 @@ function KpiTile({ label, value, sub, color }) {
 
 // ===== Phase UI helpers =====
 function StatusPill({ status }) {
+  const sTh = Projects?.normalizeWbsStatus ? Projects.normalizeWbsStatus(status) : String(status || '');
   const sRaw = String(status || '');
   const s = sRaw.toLowerCase();
 
   const map = {
     เสร็จแล้ว: { label: 'เสร็จแล้ว', dot: '#08d84c', bg: '#ffffff', border: '#08d84c', text: '#166534' },
-    ล่าช้า: { label: 'ล่าช้า', dot: '#8B5CF6', bg: '#ffffff', border: '#8B5CF6', text: '#9f1239' },
-    เสี่ยง: { label: 'เสี่ยง', dot: '#ff4059', bg: '#ffffff', border: '#ff4059', text: '#92400e' },
     ยังไม่เริ่ม: { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
-    ทำอยู่: { label: 'ทำอยู่', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
+    กำลังทำ: { label: 'กำลังทำ', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
+    ทำอยู่: { label: 'กำลังทำ', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
     planning: { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
 
+    NOT_STARTED: { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
+    IN_PROGRESS: { label: 'กำลังทำ', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
+    DONE: { label: 'เสร็จแล้ว', dot: '#08d84c', bg: '#ffffff', border: '#08d84c', text: '#166534' },
+
     done: { label: 'เสร็จแล้ว', dot: '#08d84c', bg: '#ffffff', border: '#08d84c', text: '#166534' },
-    delayed: { label: 'ล่าช้า', dot: '#8B5CF6', bg: '#ffffff', border: '#8B5CF6', text: '#9f1239' },
-    risk: { label: 'เสี่ยง', dot: '#ff4059', bg: '#ffffff', border: '#ff4059', text: '#92400e' },
     pending: { label: 'ยังไม่เริ่ม', dot: '#64748B', bg: '#ffffff', border: '#64748B', text: '#475569' },
-    doing: { label: 'ทำอยู่', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
+    doing: { label: 'กำลังทำ', dot: '#fdca01', bg: '#ffffff', border: '#fdca01', text: '#5b21b6' },
   };
 
-  const cfg = map[sRaw] || map[s] || map.pending;
+  const cfg = map[sTh] || map[sRaw] || map[s] || map.pending;
 
   return (
     <Box
@@ -259,12 +265,10 @@ function PhasesTable({ loading, rows, onRowClick, onEditRow, onDeleteRow }) {
     setMenuRow(null);
   }, []);
 
-  // ความคืบหน้า phase: ไม่มี field progress ใน phases -> ใช้ heuristic จาก status
   const statusToProgress = (status) => {
-    if (status === 'เสร็จแล้ว') return 100;
-    if (status === 'ทำอยู่') return 55;
-    if (status === 'เสี่ยง') return 45;
-    if (status === 'ล่าช้า') return 35;
+    const st = compactPhaseStatus(status);
+    if (st === 'เสร็จแล้ว') return 100;
+    if (st === 'กำลังทำ') return 55;
     return 0;
   };
 
@@ -310,7 +314,11 @@ function PhasesTable({ loading, rows, onRowClick, onEditRow, onDeleteRow }) {
               ))
               : list.map((r, idx) => {
                 const key = r.id || r.code || idx;
-                const pct = clamp(statusToProgress(r.status), 0, 100);
+                const pct = clamp(
+                  (r && r.progress !== undefined && r.progress !== null && String(r.progress) !== '' ? Number(r.progress) : statusToProgress(r.status)),
+                  0,
+                  100
+                );
                 const seq = r?.seq || `P-${idx + 1}`;
 
                 return (
@@ -435,7 +443,8 @@ function PhasesTable({ loading, rows, onRowClick, onEditRow, onDeleteRow }) {
 }
 
 export default function ProjectWorkstream({ project, workstream, onBack, onGoWork, onNavProjects, onNavProject }) {
-  const CHART_COLORS = ['#64748B', '#fdca01', '#ff4059', '#8B5CF6', '#08d84c'];
+  // Ensure status order: ยังไม่เริ่ม (grey), กำลังทำ (yellow), เสร็จแล้ว (green)
+  const CHART_COLORS = ['#64748B', '#fdca01', '#08d84c', '#8B5CF6', '#ff4059'];
   // navigation pattern ให้เหมือนของเดิม
   const handleBackClick = React.useCallback(() => {
     try {
@@ -849,11 +858,12 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
 
   const phaseAnalytics = React.useMemo(() => {
     const rows = Array.isArray(phasesState.rows) ? phasesState.rows : [];
-    const statuses = ['ยังไม่เริ่ม', 'ทำอยู่', 'เสี่ยง', 'ล่าช้า', 'เสร็จแล้ว'];
+    const statuses = ['ยังไม่เริ่ม', 'กำลังทำ', 'เสร็จแล้ว'];
 
     const base = {
       total: rows.length,
       done: 0,
+      progressList: [],
       hoursTotal: 0,
       feeTotal: 0,
       byStatus: statuses.reduce((acc, s) => {
@@ -870,8 +880,12 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
       const s = compactPhaseStatus(r?.status);
       const st = statuses.includes(s) ? s : 'ยังไม่เริ่ม';
 
+      const pNum = Number(r?.progress);
+      const p = Number.isFinite(pNum) ? clamp(pNum, 0, 100) : null;
+      if (p !== null) base.progressList.push(p);
+
       base.byStatus[st] += 1;
-      if (st === 'เสร็จแล้ว') base.done += 1;
+      if (p !== null ? p >= 100 : st === 'เสร็จแล้ว') base.done += 1;
 
       const h = Number(r?.planned_hours || 0);
       const f = Number(r?.fee || 0);
@@ -880,8 +894,11 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
       base.hoursByStatus[st] += Number.isFinite(h) ? h : 0;
     }
 
-    const progressPct = base.total > 0 ? Math.round((base.done / base.total) * 100) : 0;
-    const riskCount = (base.byStatus['เสี่ยง'] || 0) + (base.byStatus['ล่าช้า'] || 0);
+    const progressPct =
+      base.progressList.length > 0
+        ? Math.round(base.progressList.reduce((acc, n) => acc + n, 0) / base.progressList.length)
+        : (base.total > 0 ? Math.round((base.done / base.total) * 100) : 0);
+    const notDoneCount = Math.max(0, (base.total || 0) - (base.done || 0));
 
     // deadlines (exclude done)
     const today = new Date();
@@ -889,7 +906,11 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
     const todayMs = today.getTime();
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-    const active = rows.filter((r) => compactPhaseStatus(r?.status) !== 'เสร็จแล้ว');
+    const active = rows.filter((r) => {
+      const pNum = Number(r?.progress);
+      if (Number.isFinite(pNum)) return clamp(pNum, 0, 100) < 100;
+      return compactPhaseStatus(r?.status) !== 'เสร็จแล้ว';
+    });
     const dueSoon = [];
     let overdueCount = 0;
 
@@ -949,7 +970,8 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
         progressPct,
         hoursTotal: base.hoursTotal,
         feeTotal: base.feeTotal,
-        riskCount,
+        done: base.done,
+        notDoneCount,
         byStatus: base.byStatus,
         dueSoonTop: dueSoon.slice(0, 3),
         dueSoonCount: dueSoon.length,
@@ -1005,7 +1027,6 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
   }
 
   const alertCount =
-    (phaseAnalytics?.kpi?.riskCount || 0) +
     (phaseAnalytics?.kpi?.dueSoonCount || 0) +
     (phaseAnalytics?.kpi?.overdueCount || 0);
 
@@ -1074,7 +1095,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
               <Button
 
 
-                variant="text"
+                variant="body2"
                 sx={{
                   p: 0,
                   minWidth: 0,
@@ -1088,7 +1109,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
               >
                 {wsName || '-'}
               </Button>
-             
+
             </>
           ) : null}
         </Stack>
@@ -1151,81 +1172,36 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
         PaperProps={{ sx: { width: 360, borderRadius: 1 } }}
       >
         <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography sx={{ fontWeight: 950, fontSize: 14 }}>แจ้งเตือนเฟส</Typography>
-          <Typography variant="caption" color="text.secondary">
-            สรุปความเสี่ยง/กำหนดเวลา
-          </Typography>
+          <Typography sx={{ fontWeight: 800}}>การแจ้งเตือน</Typography>
         </Box>
         <Divider />
 
         <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-            สรุปความเสี่ยง
-          </Typography>
-          {/* <Typography sx={{ mt: 0.25, fontSize: 13.5, fontWeight: 950 }}>
-            {`เสี่ยง + ล่าช้า = ${formatNumber(phaseAnalytics.kpi.riskCount)} เฟส`}
-          </Typography> */}
-          <Box sx={{ mt: 0.75, display: 'flex', alignItems: 'center', gap: 1.2, flexWrap: 'wrap' }}>
-            <StatusPill status="เสี่ยง" />
-            <Typography sx={{ fontSize: 13, fontWeight: 900 }}>
-              {formatNumber(phaseAnalytics.kpi.byStatus['เสี่ยง'] || 0)} เฟส
+          <Typography variant="body2">สรุปสถานะ</Typography>
+           <Typography variant="caption" color="text.secondary">
+              กำลังทำ {formatNumber(phaseAnalytics.kpi.byStatus['กำลังทำ'] || 0)} เฟส, ยังไม่เริ่ม {formatNumber(phaseAnalytics.kpi.byStatus['ยังไม่เริ่ม'] || 0)} เฟส
             </Typography>
-            <StatusPill status="ล่าช้า" />
-            <Typography sx={{ fontSize: 13, fontWeight: 900 }}>
-              {formatNumber(phaseAnalytics.kpi.byStatus['ล่าช้า'] || 0)} เฟส
-            </Typography>
-          </Box>
         </Box>
 
         <Divider />
 
         <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
+          <Typography   variant="body2">
             ใกล้ถึงกำหนด (≤ 7 วัน)
           </Typography>
-          <Typography sx={{ mt: 0.25, fontSize: 13.5, fontWeight: 950 }}>
-            {formatNumber(phaseAnalytics.kpi.dueSoonCount)} เฟส
-          </Typography>
-          <Box sx={{ mt: 0.75, display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-            {(phaseAnalytics.kpi.dueSoonTop.length ? phaseAnalytics.kpi.dueSoonTop : [{ name: '—' }]).map((p, i) => (
-              <Box
-                key={`${p.id || p.name}-${i}`}
-                sx={{
-                  px: 1,
-                  py: 0.35,
-                  borderRadius: 999,
-                  bgcolor: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  fontSize: 12.5,
-                  fontWeight: 800,
-                  maxWidth: 300,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-                title={p.name}
-              >
-                {p.name}
-              </Box>
-            ))}
-          </Box>
+         
+          {(phaseAnalytics.kpi.dueSoonTop.length ? phaseAnalytics.kpi.dueSoonTop : [{ name: '—' }]).map((p) => (
+            <Typography variant="caption" color="text.secondary">
+              {p.name}
+            </Typography>
+          ))}
         </Box>
 
         <Divider />
 
         <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-            เลยกำหนด
-          </Typography>
-          <Typography
-            sx={{
-              mt: 0.25,
-              fontSize: 20,
-              fontWeight: 950,
-              color: phaseAnalytics.kpi.overdueCount > 0 ? '#ff4059' : 'text.primary',
-            }}
-          >
-            {formatNumber(phaseAnalytics.kpi.overdueCount)}
+          <Typography   variant="body2">
+            เลยกำหนด {formatNumber(phaseAnalytics.kpi.overdueCount)} เฟส
           </Typography>
           <Typography variant="caption" color="text.secondary">
             เฟส (ไม่นับที่เสร็จแล้ว)
@@ -1276,7 +1252,6 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
                   alignItems: 'stretch',
                 }}
               >
-                <KpiTile label="จำนวนเฟสทั้งหมด" value={formatNumber(phaseAnalytics.kpi.total)} sub="Total phases" color={'#ff4059'} />
                 <KpiTile
                   label="ความคืบหน้ารวม"
                   value={`${clamp(phaseAnalytics.kpi.progressPct, 0, 100)}%`}
@@ -1293,11 +1268,12 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
                   label="ชั่วโมงที่ใช้ไป"
                   value={formatNumber(0)}
                   sub="Actual Hours"
-                  color={'#64748B'}
+                  color={'#ff4059'}
                 />
+                <KpiTile label="จำนวนเฟสทั้งหมด" value={formatNumber(phaseAnalytics.kpi.total)} sub="Total phases" color={'#8B5CF6'} />
                 <KpiTile
-                  label="เสี่ยง/ล่าช้า"
-                  value={formatNumber(phaseAnalytics.kpi.riskCount)}
+                  label="ยังไม่เสร็จ"
+                  value={formatNumber(phaseAnalytics.kpi.notDoneCount)}
                   sub="Early warning"
                   color={'#3B82F6'}
                 />
@@ -1383,9 +1359,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
           <Box sx={{ px: 2, py: 1.75, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
             <Box sx={{ minWidth: 0 }}>
               <Typography sx={{ fontWeight: 900, fontSize: 15 }}>รายการเฟส</Typography>
-              <Typography variant="caption" color="text.secondary">
-                กดแถวเพื่อเข้าดูรายละเอียดเฟส
-              </Typography>
+
             </Box>
 
             <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -1482,7 +1456,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
 
         {phaseAnalytics.charts.timelineCount === 0 ? (
           <Typography variant="caption" color="text.secondary">
-            ไม่มีข้อมูล start/end date เพียงพอสำหรับสร้าง Timeline
+
           </Typography>
         ) : (
           <ReactApexChart
@@ -1548,7 +1522,7 @@ export default function ProjectWorkstream({ project, workstream, onBack, onGoWor
       <Dialog open={deleteDialog.open} onClose={closeDeleteDialog} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 900 }}>ยืนยันการลบ</DialogTitle>
         <DialogContent>
-          <Typography>ลบเฟส "{deleteDialog.row?.name || deleteDialog.row?.code || '—'}" หรือไม่? (ผู้ติดต่อทั้งหมดจะถูกลบตามด้วย)</Typography>
+          <Typography>ลบเฟส "{deleteDialog.row?.name || deleteDialog.row?.code || '—'}" หรือไม่? </Typography>
         </DialogContent>
         <DialogActions>
           <Button

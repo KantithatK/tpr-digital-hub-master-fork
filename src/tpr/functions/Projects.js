@@ -139,6 +139,77 @@ function clampPct(v) {
   return Math.max(0, Math.min(100, x));
 }
 
+// =========================
+// WBS Status/Progress (logic only)
+// - Canonical Thai statuses: 'ยังไม่เริ่ม' | 'กำลังทำ' | 'เสร็จแล้ว'
+// - DB canonical codes (new schema): NOT_STARTED | IN_PROGRESS | DONE
+// =========================
+
+const WBS_STATUS_TH = {
+  NOT_STARTED: 'ยังไม่เริ่ม',
+  IN_PROGRESS: 'กำลังทำ',
+  DONE: 'เสร็จแล้ว',
+};
+
+function normalizeWbsStatus(s) {
+  const raw = String(s || '').trim();
+  if (!raw) return WBS_STATUS_TH.NOT_STARTED;
+
+  // already canonical Thai
+  if (raw === WBS_STATUS_TH.NOT_STARTED || raw === WBS_STATUS_TH.IN_PROGRESS || raw === WBS_STATUS_TH.DONE) {
+    return raw;
+  }
+
+  // support legacy Thai
+  if (raw === 'ทำอยู่' || raw === 'กำลังดำเนินการ') return WBS_STATUS_TH.IN_PROGRESS;
+  if (raw === 'เสี่ยง' || raw === 'ล่าช้า') return WBS_STATUS_TH.IN_PROGRESS;
+  if (raw === 'เสร็จสิ้น') return WBS_STATUS_TH.DONE;
+  if (raw === 'ยังไม่เริ่ม') return WBS_STATUS_TH.NOT_STARTED;
+
+  const low = raw.toLowerCase().trim().replace(/\s+/g, ' ');
+
+  // support new DB codes
+  if (raw === 'NOT_STARTED' || low === 'not_started') return WBS_STATUS_TH.NOT_STARTED;
+  if (raw === 'IN_PROGRESS' || low === 'in_progress') return WBS_STATUS_TH.IN_PROGRESS;
+  if (raw === 'DONE' || low === 'done') return WBS_STATUS_TH.DONE;
+
+  // migration: old English/status labels
+  if (low === 'planning' || low === 'pending' || low === 'not started' || low === 'new') return WBS_STATUS_TH.NOT_STARTED;
+  if (low === 'active' || low === 'doing' || low === 'in progress' || low === 'progress') return WBS_STATUS_TH.IN_PROGRESS;
+  if (low === 'risk' || low === 'delayed' || low === 'late') return WBS_STATUS_TH.IN_PROGRESS;
+  if (low === 'completed' || low === 'finished' || low === 'complete') return WBS_STATUS_TH.DONE;
+
+  return WBS_STATUS_TH.NOT_STARTED;
+}
+
+function deriveStatusFromProgress(pct) {
+  const p = clampPct(pct);
+  if (p <= 0) return WBS_STATUS_TH.NOT_STARTED;
+  if (p >= 100) return WBS_STATUS_TH.DONE;
+  return WBS_STATUS_TH.IN_PROGRESS;
+}
+
+function calcProgressFromChildren(listOfPct) {
+  const list = Array.isArray(listOfPct) ? listOfPct : [];
+  if (list.length === 0) return 0;
+  let sum = 0;
+  let count = 0;
+  for (const v of list) {
+    // treat null/undefined/non-numeric as 0
+    sum += clampPct(v);
+    count += 1;
+  }
+  return count > 0 ? clampPct(Math.round(sum / count)) : 0;
+}
+
+// internal: map Thai status -> DB code (do not export)
+function toDbWbsStatusCode(thOrAnyStatus) {
+  const th = normalizeWbsStatus(thOrAnyStatus);
+  if (th === WBS_STATUS_TH.DONE) return 'DONE';
+  if (th === WBS_STATUS_TH.IN_PROGRESS) return 'IN_PROGRESS';
+  return 'NOT_STARTED';
+}
+
 // ===== Workday / Calendar helpers (shared business logic; no UI) =====
 function addDaysISO(dateISO, deltaDays) {
   const iso = normalizeDateISO(dateISO);
@@ -215,6 +286,9 @@ async function createInitialWorkstream(supabase, project, actor) {
       budget_amount,
       start_date,
       end_date,
+      // Canonical defaults (DB expects codes; UI normalizes to Thai)
+      status: toDbWbsStatusCode(WBS_STATUS_TH.NOT_STARTED),
+      progress: 0,
       created_by: actor || null,
       updated_by: actor || null,
       // field อื่นปล่อย default DB
@@ -238,6 +312,13 @@ async function createInitialWorkstream(supabase, project, actor) {
 }
 
 const Projects = {
+  // ===== Status/Progress helpers (roll-up + normalize) =====
+  // Canonical Thai statuses: 'ยังไม่เริ่ม' | 'กำลังทำ' | 'เสร็จแล้ว'
+  normalizeWbsStatus,
+  clampPct,
+  deriveStatusFromProgress,
+  calcProgressFromChildren,
+
   // ---------- Default Form ----------
   getDefaultForm: () => ({
     id: null,
@@ -292,7 +373,9 @@ const Projects = {
     budget: '',
 
     // system
-    status: 'Planning',
+    // Canonical WBS status (Thai) - DB layer will store code via mapping
+    status: WBS_STATUS_TH.NOT_STARTED,
+    progress: 0,
     image_path: '',
 
     // “ทีมเริ่มต้น”
@@ -426,7 +509,9 @@ const Projects = {
       operating_budget: parseBudgetNumber(f.operating_budget),
       admin_budget: parseBudgetNumber(f.admin_budget),
 
-      status: cleanText(f.status, 64) || 'Planning',
+      // Canonical WBS status/progress
+      status: toDbWbsStatusCode(f.status),
+      progress: clampPct(f.progress ?? 0),
       image_path: f.image_path ? String(f.image_path).trim() : null,
     };
 
@@ -578,7 +663,8 @@ const Projects = {
 
       // keep for backward compat in UI; DB trigger controls total
       budget: row.budget ?? 0,
-      status: row.status ?? 'Planning',
+      status: normalizeWbsStatus(row.status ?? WBS_STATUS_TH.NOT_STARTED),
+      progress: clampPct(row.progress ?? 0),
       parent_project_id: row.parent_project_id ?? 'MAIN',
       image_path: row.image_path ?? '',
 
@@ -785,33 +871,98 @@ const Projects = {
   },
 
   // ---------- Dashboard: Progress (from WBS tasks) ----------
-  // ✅ นับเฉพาะ billable_mode = 'billable'
+  // ⚠️ Deprecated: เดิมนับ done/total จาก metadata->>status='Done'
+  // ✅ ใหม่: คำนวณจาก SubTasks (roll-up base) เพื่อใช้สูตรเดียวทั้งระบบ
   getProgressFromTasks: async (supabase, projectId) => {
+    const res = await Projects.getProjectProgressFromSubTasks(supabase, projectId);
+    return {
+      // keep shape for callers (progressDone/progressTotal are optional display metrics)
+      done: toNum(res?.doneCount || 0),
+      total: toNum(res?.totalCount || 0),
+      pct: clampPct(res?.progressPct || 0),
+    };
+  },
+
+  // ---------- Roll-up base: Project progress from SubTasks ----------
+  // Efficient aggregate query (avg(progress)) + (optional) counts.
+  getProjectProgressFromSubTasks: async (supabase, projectId, opts = {}) => {
     if (!supabase) throw new Error('SUPABASE_CLIENT_REQUIRED');
     if (!isUuid(projectId)) throw new Error('INVALID_PROJECT_ID');
 
-    const { count: total, error: totalErr } = await supabase
-      .from('tpr_project_wbs_tasks')
-      .select('id', { count: 'exact', head: true })
-      .eq('project_id', projectId)
-      .eq('billable_mode', 'billable');
+    const includeGroups = Boolean(opts?.includeGroups);
 
+    // 1) avg(progress)
+    let avgPct = 0;
+    try {
+      // PostgREST aggregate: progress.avg()
+      const { data, error } = await supabase
+        .from('tpr_project_wbs_sub_tasks')
+        .select('avg_progress:progress.avg()')
+        .eq('project_id', projectId)
+        .maybeSingle();
+
+      if (error) throw error;
+      avgPct = clampPct(data?.avg_progress ?? 0);
+    } catch {
+      // Fallback (less efficient): fetch progress and compute client-side
+      const { data, error } = await supabase
+        .from('tpr_project_wbs_sub_tasks')
+        .select('progress')
+        .eq('project_id', projectId);
+      if (error) throw error;
+      const list = Array.isArray(data) ? data.map((r) => r?.progress ?? 0) : [];
+      avgPct = calcProgressFromChildren(list);
+    }
+
+    // 2) counts (optional but cheap; keeps backward compat metrics)
+    const { count: totalCount, error: totalErr } = await supabase
+      .from('tpr_project_wbs_sub_tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('project_id', projectId);
     if (totalErr) throw totalErr;
 
-    const { count: done, error: doneErr } = await supabase
-      .from('tpr_project_wbs_tasks')
+    const { count: doneCount, error: doneErr } = await supabase
+      .from('tpr_project_wbs_sub_tasks')
       .select('id', { count: 'exact', head: true })
       .eq('project_id', projectId)
-      .eq('billable_mode', 'billable')
-      .eq('metadata->>status', 'Done');
-
+      .eq('progress', 100);
     if (doneErr) throw doneErr;
 
-    const t = Number(total || 0);
-    const d = Number(done || 0);
-    const pct = t > 0 ? Math.round((d / t) * 100) : 0;
+    const out = {
+      projectId,
+      progressPct: clampPct(avgPct),
+      statusTh: deriveStatusFromProgress(avgPct),
+      totalCount: toNum(totalCount || 0),
+      doneCount: toNum(doneCount || 0),
+    };
 
-    return { done: d, total: t, pct };
+    if (!includeGroups) return out;
+
+    // Optional group-by for dashboards (Task/Phase). No UI imports here.
+    const groups = {};
+    try {
+      const { data: byTask, error: byTaskErr } = await supabase
+        .from('tpr_project_wbs_sub_tasks')
+        .select('task_id, avg_progress:progress.avg()')
+        .eq('project_id', projectId);
+      if (byTaskErr) throw byTaskErr;
+      groups.byTask = (byTask || []).map((r) => ({ task_id: r.task_id, progressPct: clampPct(r.avg_progress ?? 0) }));
+    } catch {
+      groups.byTask = [];
+    }
+
+    try {
+      const { data: byPhase, error: byPhaseErr } = await supabase
+        .from('tpr_project_wbs_sub_tasks')
+        .select('phase_id, avg_progress:progress.avg()')
+        .eq('project_id', projectId);
+      if (byPhaseErr) throw byPhaseErr;
+      groups.byPhase = (byPhase || []).map((r) => ({ phase_id: r.phase_id, progressPct: clampPct(r.avg_progress ?? 0) }));
+    } catch {
+      groups.byPhase = [];
+    }
+
+    return { ...out, groups };
   },
 
   // ---------- Dashboard: WIP ----------
@@ -1184,7 +1335,7 @@ const Projects = {
         .eq('billable_mode', 'billable')
         .not('end_date', 'is', null)
         .lt('end_date', today)
-        .neq('metadata->>status', 'Done');
+        .lt('progress', 100);
 
       if (error) throw error;
 
@@ -1194,7 +1345,7 @@ const Projects = {
           level: 'WARN',
           key: 'TASKS_OVERDUE',
           title: 'มีงานเกินกำหนด (Overdue tasks)',
-          detail: `พบ ${c} งานที่ end_date < วันนี้ และยังไม่ Done`,
+          detail: `พบ ${c} งานที่ end_date < วันนี้ และ progress < 100%`,
           meta: { overdueTasks: c },
         });
       }
@@ -1297,6 +1448,30 @@ const Projects = {
     return data || [];
   },
 
+  // ---------- Get operating expenses for a workstream (from tpr_expenses) ----------
+  getOperatingExpenseByWorkstream: async ({ projectId, supabase }) => {
+    try {
+      if (!supabase) return { totalAmount: 0 };
+      if (!isUuid(projectId)) return { totalAmount: 0 };
+
+      const { data, error } = await supabase
+        .from('tpr_expenses')
+        .select('amount')
+        .eq('project_id', projectId);
+
+      if (error) {
+        console.error('getOperatingExpenseByWorkstream error:', error);
+        return { totalAmount: 0 };
+      }
+
+      const total = Array.isArray(data) ? data.reduce((s, r) => s + (Number(r?.amount || 0) || 0), 0) : 0;
+      return { totalAmount: Number(total || 0) };
+    } catch (e) {
+      console.error('getOperatingExpenseByWorkstream exception:', e);
+      return { totalAmount: 0 };
+    }
+  },
+
   // ---------- Workstreams: Summary helper (DB-backed) ----------
   getWorkstreamsSummary: async (supabase, projectId) => {
     if (!supabase) throw new Error('MISSING_SUPABASE');
@@ -1314,8 +1489,8 @@ const Projects = {
 
     const rows = Array.isArray(data) ? data : [];
     const totalCount = rows.length;
-    const doneCount = rows.filter((r) => String(r?.status || '') === 'เสร็จแล้ว').length;
-    const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+    const doneCount = rows.filter((r) => clampPct(r?.progress ?? 0) >= 100).length;
+    const progressPct = calcProgressFromChildren(rows.map((r) => r?.progress ?? 0));
 
     let spentTotal = 0;
     let budgetTotal = 0;
@@ -1409,8 +1584,15 @@ const Projects = {
   // ---------- UI helpers for project list ----------
   // Map English status to Thai label used in list UI
   statusTh: (status) => {
-    const s = String(status || '');
-    if (s === 'Planning') return 'อยู่ระหว่างวางแผน';
+    const s = String(status || '').trim();
+
+    // New DB codes / canonical Thai
+    if (s === 'NOT_STARTED' || s === 'IN_PROGRESS' || s === 'DONE' || s === WBS_STATUS_TH.NOT_STARTED || s === WBS_STATUS_TH.IN_PROGRESS || s === WBS_STATUS_TH.DONE) {
+      return normalizeWbsStatus(s);
+    }
+
+    // Legacy project list labels (keep for backward compat)
+    if (s === 'Planning') return 'ยังไม่เริ่ม';
     if (s === 'Active') return 'กำลังดำเนินการ';
     if (s === 'Completed') return 'เสร็จสิ้น';
     return s || '';
@@ -1418,7 +1600,14 @@ const Projects = {
 
   // Emoji indicator for status
   statusEmoji: (status) => {
-    const s = String(status || '');
+    const s = String(status || '').trim();
+
+    // New DB codes / canonical Thai
+    if (s === 'DONE' || s === WBS_STATUS_TH.DONE) return '🌴';
+    if (s === 'IN_PROGRESS' || s === WBS_STATUS_TH.IN_PROGRESS) return '🌳';
+    if (s === 'NOT_STARTED' || s === WBS_STATUS_TH.NOT_STARTED) return '🌱';
+
+    // Legacy
     if (s === 'Active') return '🌳';
     if (s === 'Planning') return '🌱';
     if (s === 'Completed') return '🌴';
@@ -1482,8 +1671,8 @@ const Projects = {
 
     const rows = Array.isArray(data) ? data : [];
     const total = rows.length;
-    const done = rows.filter((r) => String(r?.status || '') === 'เสร็จแล้ว').length;
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const done = rows.filter((r) => clampPct(r?.progress ?? 0) >= 100).length;
+    const pct = calcProgressFromChildren(rows.map((r) => r?.progress ?? 0));
 
     return { done, total, pct };
   },
@@ -1523,8 +1712,8 @@ const Projects = {
 
     const rows = Array.isArray(data) ? data : [];
     const total = rows.length;
-    const done = rows.filter((r) => String(r?.status || '') === 'เสร็จแล้ว').length;
-    const progressPct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const done = rows.filter((r) => clampPct(r?.progress ?? 0) >= 100).length;
+    const progressPct = calcProgressFromChildren(rows.map((r) => r?.progress ?? 0));
 
     let budgetTotal = 0;
     let usedAmount = 0;
@@ -1570,10 +1759,10 @@ const Projects = {
   // map derived status to Thai label used in UI
   statusThFromDerived: (status) => {
     const s = String(status || '');
-    if (s === 'Planning') return 'อยู่ระหว่างวางแผน';
+    if (s === 'Planning') return 'ยังไม่เริ่ม';
     if (s === 'Active') return 'กำลังดำเนินการ';
     if (s === 'Completed') return 'เสร็จสิ้น';
-    return 'อยู่ระหว่างวางแผน';
+    return 'ยังไม่เริ่ม';
   },
 
   // ---------- Workstream budget/risk helper (synchronous, no DB calls) ----------

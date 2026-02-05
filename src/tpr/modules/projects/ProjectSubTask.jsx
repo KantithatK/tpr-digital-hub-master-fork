@@ -55,6 +55,7 @@ import ReactApexChart from "react-apexcharts";
 
 // ✅ Logic layer
 import * as SubTask from "../../functions/SubTask";
+import Projects from "../../functions/Projects";
 
 const BRAND = "#ff4059";
 
@@ -67,9 +68,7 @@ try {
 
 const STATUS_COLORS = {
     "ยังไม่เริ่ม": "#64748B",
-    "ทำอยู่": "#fdca01",
-    "เสี่ยง": "#ff4059",
-    "ล่าช้า": "#8B5CF6",
+    "กำลังทำ": "#fdca01",
     "เสร็จแล้ว": "#08d84c",
 };
 
@@ -87,36 +86,19 @@ function parseMaybeJsonObject(v) {
     }
 }
 
-function normalizeStatusThai(status) {
-    const raw = String(status || "").trim();
-    if (!raw) return "ยังไม่เริ่ม";
+function normalizeWbsStatus(s) {
+    if (Projects?.normalizeWbsStatus) return Projects.normalizeWbsStatus(s);
+    const raw = String(s || '').trim();
+    if (raw === 'เสร็จแล้ว' || raw === 'DONE' || raw.toLowerCase() === 'done') return 'เสร็จแล้ว';
+    if (raw === 'กำลังทำ' || raw === 'ทำอยู่' || raw === 'IN_PROGRESS' || raw.toLowerCase() === 'in_progress') return 'กำลังทำ';
+    return 'ยังไม่เริ่ม';
+}
 
-    // already Thai
-    if (["ยังไม่เริ่ม", "ทำอยู่", "เสี่ยง", "ล่าช้า", "เสร็จแล้ว"].includes(raw)) return raw;
-
-    const key = raw
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, " ")
-        .replace(/-/g, "_");
-
-    const map = {
-        pending: "ยังไม่เริ่ม",
-        planning: "ยังไม่เริ่ม",
-        not_started: "ยังไม่เริ่ม",
-        todo: "ยังไม่เริ่ม",
-        doing: "ทำอยู่",
-        in_progress: "ทำอยู่",
-        "in progress": "ทำอยู่",
-        progress: "ทำอยู่",
-        done: "เสร็จแล้ว",
-        completed: "เสร็จแล้ว",
-        complete: "เสร็จแล้ว",
-        risk: "เสี่ยง",
-        delayed: "ล่าช้า",
-    };
-
-    return map[key] || "ยังไม่เริ่ม";
+function fallbackProgressFromStatus(status) {
+    const st = normalizeWbsStatus(status);
+    if (st === 'เสร็จแล้ว') return 100;
+    if (st === 'กำลังทำ') return 50;
+    return 0;
 }
 
 function clamp(n, a, b) {
@@ -175,7 +157,7 @@ function validatePlannedHoursText(v) {
     return "";
 }
 
-function KpiTile({ label, value, sub, color, icon }) {
+function KpiTile({ label, value, sub, color }) {
     return (
         <Box
             sx={{
@@ -189,24 +171,11 @@ function KpiTile({ label, value, sub, color, icon }) {
             }}
         >
             <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 900 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 900 }}>
                     {label}
                 </Typography>
 
-                {icon ? (
-                    <Box
-                        sx={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            color: color || "text.primary",
-                            opacity: 0.95,
-                            mt: 0.1,
-                        }}
-                    >
-                        {icon}
-                    </Box>
-                ) : null}
+
             </Box>
             <Typography
                 sx={{
@@ -230,16 +199,12 @@ function KpiTile({ label, value, sub, color, icon }) {
 }
 
 function StatusPill({ status }) {
-    const st = normalizeStatusThai(status);
-
+    const st = normalizeWbsStatus(status);
     const map = {
-        "เสร็จแล้ว": { label: "เสร็จแล้ว", dot: "#08d84c", border: "#08d84c" },
-        "ล่าช้า": { label: "ล่าช้า", dot: "#8B5CF6", border: "#8B5CF6" },
-        "เสี่ยง": { label: "เสี่ยง", dot: "#ff4059", border: "#ff4059" },
         "ยังไม่เริ่ม": { label: "ยังไม่เริ่ม", dot: "#64748B", border: "#64748B" },
-        "ทำอยู่": { label: "ทำอยู่", dot: "#fdca01", border: "#fdca01" },
+        "กำลังทำ": { label: "กำลังทำ", dot: "#fdca01", border: "#fdca01" },
+        "เสร็จแล้ว": { label: "เสร็จแล้ว", dot: "#08d84c", border: "#08d84c" },
     };
-
     const cfg = map[st] || map["ยังไม่เริ่ม"];
 
     return (
@@ -285,16 +250,6 @@ function TasksTable({ loading, rows, onRowClick, onEditRow, onDeleteRow }) {
         setMenuAnchor(null);
         setMenuRow(null);
     }, []);
-
-    // heuristic progress from status (fallback only)
-    const statusToProgress = (status) => {
-        const st = normalizeStatusThai(status);
-        if (st === "เสร็จแล้ว") return 100;
-        if (st === "ทำอยู่") return 55;
-        if (st === "เสี่ยง") return 45;
-        if (st === "ล่าช้า") return 35;
-        return 0;
-    };
 
     return (
         <Box sx={{ width: "100%" }}>
@@ -351,7 +306,7 @@ function TasksTable({ loading, rows, onRowClick, onEditRow, onDeleteRow }) {
                                 const progressNum =
                                     progressRaw === null || progressRaw === undefined || progressRaw === "" ? NaN : Number(progressRaw);
                                 const pct = clamp(
-                                    Number.isFinite(progressNum) ? progressNum : statusToProgress(r.status),
+                                    Number.isFinite(progressNum) ? progressNum : fallbackProgressFromStatus(r.status),
                                     0,
                                     100
                                 );
@@ -420,7 +375,7 @@ function TasksTable({ loading, rows, onRowClick, onEditRow, onDeleteRow }) {
                                 <TableCell colSpan={6}>
                                     <Box sx={{ py: 1 }}>
                                         <Typography variant="caption" color="text.secondary">
-                                            ยังไม่มีงานย่อยในงานหลักนี้
+
                                         </Typography>
                                     </Box>
                                 </TableCell>
@@ -526,8 +481,12 @@ export default function ProjectSubTask({
 
     const phaseStartISO = phaseObj?.start_date || "";
     const phaseEndISO = phaseObj?.end_date || "";
-    const phaseStartDay = React.useMemo(() => toDayjsDate(phaseStartISO), [phaseStartISO]);
-    const phaseEndDay = React.useMemo(() => toDayjsDate(phaseEndISO), [phaseEndISO]);
+
+    // Task-level boundaries (primary). Fallback to phase bounds if task lacks them.
+    const taskStartISO = taskObj?.start_date || phaseStartISO || "";
+    const taskEndISO = taskObj?.end_date || phaseEndISO || "";
+    const taskStartDay = React.useMemo(() => toDayjsDate(taskStartISO), [taskStartISO]);
+    const taskEndDay = React.useMemo(() => toDayjsDate(taskEndISO), [taskEndISO]);
 
     const [subTasksState, setSubTasksState] = React.useState(() => ({
         loading: true,
@@ -645,13 +604,14 @@ export default function ProjectSubTask({
                 projectId,
                 phaseId,
                 taskId,
+                workstreamId: wsId,
                 supabaseClient: supabase,
             });
 
             const mapped = (Array.isArray(rows) ? rows : []).map((r, idx) => {
                 const md = parseMaybeJsonObject(r?.metadata);
                 const stRaw = String(md?.status || r?.status || "").trim();
-                const st = normalizeStatusThai(stRaw);
+                const st = normalizeWbsStatus(stRaw);
                 const seqNum = md?.seq != null ? String(md.seq) : null;
                 const seq = seqNum ? `S-${seqNum}` : `S-${idx + 1}`;
                 return {
@@ -668,7 +628,7 @@ export default function ProjectSubTask({
             console.error("reloadSubTasks error:", e);
             setSubTasksState({ loading: false, rows: [] });
         }
-    }, [phaseId, projectId, supabase, taskId]);
+    }, [phaseId, projectId, supabase, taskId, wsId]);
 
     React.useEffect(() => {
         reloadSubTasks();
@@ -688,6 +648,11 @@ export default function ProjectSubTask({
     const closeAlerts = React.useCallback(() => setAlertAnchor(null), []);
 
     const openCreateDialog = React.useCallback(() => {
+        if (!taskStartISO || !taskEndISO) {
+            window.alert("งานหลักยังไม่มีช่วงวันที่เริ่ม/สิ้นสุด จึงไม่สามารถสร้างงานย่อยได้");
+            return;
+        }
+
         setSubTaskDialog({
             open: true,
             mode: "create",
@@ -698,6 +663,7 @@ export default function ProjectSubTask({
                 id: null,
                 code: SubTask.genSubTaskCode(),
                 name: "",
+                workstream_id: wsId,
                 status: "ยังไม่เริ่ม",
                 start_date: "",
                 end_date: "",
@@ -706,12 +672,16 @@ export default function ProjectSubTask({
             },
             errors: { start_date: "", end_date: "", planned_hours: "", owner: "" },
         });
-    }, []);
+    }, [wsId, taskStartISO, taskEndISO]);
 
     const openEditDialog = React.useCallback((row) => {
+        if (!taskStartISO || !taskEndISO) {
+            window.alert("งานหลักยังไม่มีช่วงวันที่เริ่ม/สิ้นสุด จึงไม่สามารถแก้ไขงานย่อยได้");
+            return;
+        }
         const md = parseMaybeJsonObject(row?.metadata);
         const stRaw = String(md?.status || row?.status || "ยังไม่เริ่ม").trim() || "ยังไม่เริ่ม";
-        const st = normalizeStatusThai(stRaw);
+        const st = normalizeWbsStatus(stRaw);
         setSubTaskDialog({
             open: true,
             mode: "edit",
@@ -721,6 +691,7 @@ export default function ProjectSubTask({
             form: {
                 id: row?.id || null,
                 code: row?.code || "",
+                workstream_id: row?.workstream_id || wsId || null,
                 name: row?.name || "",
                 status: st,
                 start_date: row?.start_date || "",
@@ -730,7 +701,7 @@ export default function ProjectSubTask({
             },
             errors: { start_date: "", end_date: "", planned_hours: "", owner: "" },
         });
-    }, []);
+    }, [wsId, taskStartISO, taskEndISO]);
 
     const closeSubTaskDialog = React.useCallback(() => {
         setSubTaskDialog((prev) => ({ ...prev, open: false, saving: false }));
@@ -762,8 +733,8 @@ export default function ProjectSubTask({
             const res = await SubTask.calcSubTaskEndDateFromPlannedHours({
                 start_date,
                 planned_hours: hoursNum,
-                boundary_start: phaseStartISO || "",
-                boundary_end: phaseEndISO || "",
+                boundary_start: taskStartISO || "",
+                boundary_end: taskEndISO || "",
             });
 
             if (!alive) return;
@@ -781,7 +752,7 @@ export default function ProjectSubTask({
         return () => {
             alive = false;
         };
-    }, [subTaskDialog.autoCalcDirty, subTaskDialog.form.planned_hours, subTaskDialog.form.start_date, subTaskDialog.open, subTaskDialog.plannedHoursAuto, phaseEndISO, phaseStartISO]);
+    }, [subTaskDialog.autoCalcDirty, subTaskDialog.form.planned_hours, subTaskDialog.form.start_date, subTaskDialog.open, subTaskDialog.plannedHoursAuto, taskEndISO, taskStartISO]);
 
     // inverse calc planned_hours from dates (if planned empty or auto)
     React.useEffect(() => {
@@ -840,8 +811,8 @@ export default function ProjectSubTask({
             return;
         }
 
-        if (!phaseStartISO || !phaseEndISO) {
-            window.alert("เฟสยังไม่มีช่วงวันที่เริ่ม/สิ้นสุด จึงไม่สามารถสร้าง/แก้ไข งานย่อย ได้");
+        if (!taskStartISO || !taskEndISO) {
+            window.alert("งานหลักยังไม่มีช่วงวันที่เริ่ม/สิ้นสุด จึงไม่สามารถสร้าง/แก้ไข งานย่อย ได้");
             return;
         }
 
@@ -860,11 +831,11 @@ export default function ProjectSubTask({
             return;
         }
 
-        const rangeRes = SubTask.validateSubTaskRangeWithinPhase({
+        const rangeRes = SubTask.validateSubTaskRangeWithinTask({
             start_date: form.start_date,
             end_date: form.end_date,
-            phase_start: phaseStartISO,
-            phase_end: phaseEndISO,
+            task_start: taskStartISO,
+            task_end: taskEndISO,
         });
 
         if (!rangeRes?.ok) {
@@ -877,6 +848,7 @@ export default function ProjectSubTask({
         try {
             const payloadBase = {
                 project_id: projectId,
+                workstream_id: wsId,
                 phase_id: phaseId,
                 task_id: taskId,
                 code,
@@ -913,7 +885,7 @@ export default function ProjectSubTask({
             window.alert(`บันทึกล้มเหลว: ${String(e?.message || e)}`);
             setSubTaskDialog((prev) => ({ ...prev, saving: false }));
         }
-    }, [closeSubTaskDialog, phaseEndISO, phaseId, phaseStartISO, projectId, reloadSubTasks, subTaskDialog.form, subTaskDialog.mode, taskId, userId, supabase]);
+    }, [closeSubTaskDialog, taskEndISO, phaseId, taskStartISO, projectId, reloadSubTasks, subTaskDialog.form, subTaskDialog.mode, taskId, userId, supabase, wsId]);
 
     const openDeleteDialog = React.useCallback((row) => {
         setDeleteDialog({ open: true, row: row || null, deleting: false });
@@ -944,7 +916,7 @@ export default function ProjectSubTask({
     // ===== Analytics (คิดใหม่/กราฟใหม่) =====
     const analytics = React.useMemo(() => {
         const rows = Array.isArray(subTasksState.rows) ? subTasksState.rows : [];
-        const statuses = ["ยังไม่เริ่ม", "ทำอยู่", "เสี่ยง", "ล่าช้า", "เสร็จแล้ว"];
+        const statuses = ["ยังไม่เริ่ม", "กำลังทำ", "เสร็จแล้ว"];
 
         const base = {
             total: rows.length,
@@ -959,8 +931,7 @@ export default function ProjectSubTask({
         const endMap = new Map(); // YYYY-MM-DD -> count
 
         for (const r of rows) {
-            const s = String(r?.status || "ยังไม่เริ่ม").trim() || "ยังไม่เริ่ม";
-            const st = statuses.includes(s) ? s : "ยังไม่เริ่ม";
+            const st = normalizeWbsStatus(r?.status);
 
             base.byStatus[st] += 1;
             if (st === "เสร็จแล้ว") base.done += 1;
@@ -976,15 +947,38 @@ export default function ProjectSubTask({
             if (endIso) endMap.set(endIso, (endMap.get(endIso) || 0) + 1);
         }
 
-        const progressPct = base.total > 0 ? Math.round((base.done / base.total) * 100) : 0;
-        const riskCount = (base.byStatus["เสี่ยง"] || 0) + (base.byStatus["ล่าช้า"] || 0);
+        const clampPct = Projects?.clampPct ? Projects.clampPct : (v) => clamp(v, 0, 100);
+        const progressList = rows
+            .map((r) => {
+                const v = r?.progress;
+                const n = v === null || v === undefined || v === '' ? NaN : Number(v);
+                return Number.isFinite(n) ? clampPct(n) : null;
+            })
+            .filter((x) => x !== null);
+
+        const progressPct =
+            progressList.length > 0
+                ? clampPct(Math.round(progressList.reduce((sum, x) => sum + Number(x || 0), 0) / progressList.length))
+                : (base.total > 0 ? Math.round((base.done / base.total) * 100) : 0);
+
+        const notDoneCount = rows.reduce((acc, r) => {
+            const v = r?.progress;
+            const n = v === null || v === undefined || v === '' ? NaN : Number(v);
+            if (Number.isFinite(n)) return acc + (clampPct(n) < 100 ? 1 : 0);
+            return acc + (normalizeWbsStatus(r?.status) !== 'เสร็จแล้ว' ? 1 : 0);
+        }, 0);
 
         // dueSoon / overdue
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayMs = today.getTime();
 
-        const active = rows.filter((r) => String(r?.status || "") !== "เสร็จแล้ว");
+        const active = rows.filter((r) => {
+            const v = r?.progress;
+            const n = v === null || v === undefined || v === '' ? NaN : Number(v);
+            if (Number.isFinite(n)) return clampPct(n) < 100;
+            return normalizeWbsStatus(r?.status) !== 'เสร็จแล้ว';
+        });
         const dueSoon = [];
         let overdueCount = 0;
 
@@ -1045,7 +1039,7 @@ export default function ProjectSubTask({
                 total: base.total,
                 progressPct,
                 hoursTotal: base.hoursTotal,
-                riskCount,
+                notDoneCount,
                 byStatus: base.byStatus,
                 dueSoonTop: dueSoon.slice(0, 3),
                 dueSoonCount: dueSoon.length,
@@ -1118,8 +1112,7 @@ export default function ProjectSubTask({
         );
     }
 
-    const alertCount =
-        (analytics?.kpi?.riskCount || 0) + (analytics?.kpi?.dueSoonCount || 0) + (analytics?.kpi?.overdueCount || 0);
+    const alertCount = (analytics?.kpi?.dueSoonCount || 0) + (analytics?.kpi?.overdueCount || 0);
 
     return (
         <Box sx={{ maxWidth: 1180, mx: "auto", width: "100%" }}>
@@ -1303,53 +1296,30 @@ export default function ProjectSubTask({
                 PaperProps={{ sx: { width: 360, borderRadius: 1 } }}
             >
                 <Box sx={{ px: 2, py: 1.25 }}>
-                    <Typography sx={{ fontWeight: 950, fontSize: 14 }}>แจ้งเตือนงานย่อย</Typography>
+                    <Typography sx={{ fontWeight: 800 }}>การแจ้งเตือน</Typography>
+                </Box>
+                <Divider />
+
+                <Box sx={{ px: 2, py: 1.25 }}>
+                    <Typography variant="body2">สรุปสถานะ</Typography>
                     <Typography variant="caption" color="text.secondary">
-                        สรุปความเสี่ยง/กำหนดเวลา
+                        กำลังทำ {formatNumber(analytics.kpi.byStatus['กำลังทำ'] || 0)} เฟส, ยังไม่เริ่ม {formatNumber(analytics.kpi.byStatus['ยังไม่เริ่ม'] || 0)} เฟส
                     </Typography>
-                </Box>
-                <Divider />
-
-                <Box sx={{ px: 2, py: 1.25 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-                        สรุปความเสี่ยง
-                    </Typography>
-                    <Box sx={{ mt: 0.75, display: "flex", alignItems: "center", gap: 1.2, flexWrap: "wrap" }}>
-                        <StatusPill status="เสี่ยง" />
-                        <Typography sx={{ fontSize: 13, fontWeight: 900 }}>{formatNumber(analytics.kpi.byStatus["เสี่ยง"] || 0)} งาน</Typography>
-                        <StatusPill status="ล่าช้า" />
-                        <Typography sx={{ fontSize: 13, fontWeight: 900 }}>{formatNumber(analytics.kpi.byStatus["ล่าช้า"] || 0)} งาน</Typography>
-                    </Box>
                 </Box>
 
                 <Divider />
 
                 <Box sx={{ px: 2, py: 1.25 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
+                    <Typography variant="body2">
                         ใกล้ถึงกำหนด (≤ 7 วัน)
                     </Typography>
-                    <Typography sx={{ mt: 0.25, fontSize: 13.5, fontWeight: 950 }}>{formatNumber(analytics.kpi.dueSoonCount)} งาน</Typography>
+                    {/* <Typography sx={{ mt: 0.25, fontSize: 13.5, fontWeight: 950 }}>{formatNumber(analytics.kpi.dueSoonCount)} งาน</Typography> */}
                     <Box sx={{ mt: 0.75, display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-                        {(analytics.kpi.dueSoonTop.length ? analytics.kpi.dueSoonTop : [{ name: "—" }]).map((p, i) => (
-                            <Box
-                                key={`${p.id || p.name}-${i}`}
-                                sx={{
-                                    px: 1,
-                                    py: 0.35,
-                                    borderRadius: 999,
-                                    bgcolor: "#f8fafc",
-                                    border: "1px solid #e2e8f0",
-                                    fontSize: 12.5,
-                                    fontWeight: 800,
-                                    maxWidth: 300,
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                }}
-                                title={p.name}
-                            >
+                        {(analytics.kpi.dueSoonTop.length ? analytics.kpi.dueSoonTop : [{ name: "—" }]).map((p) => (
+
+                            <Typography variant="caption" color="text.secondary">
                                 {p.name}
-                            </Box>
+                            </Typography>
                         ))}
                     </Box>
                 </Box>
@@ -1357,14 +1327,11 @@ export default function ProjectSubTask({
                 <Divider />
 
                 <Box sx={{ px: 2, py: 1.25 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-                        เลยกำหนด
-                    </Typography>
-                    <Typography sx={{ mt: 0.25, fontSize: 20, fontWeight: 950, color: analytics.kpi.overdueCount > 0 ? BRAND : "text.primary" }}>
-                        {formatNumber(analytics.kpi.overdueCount)}
+                    <Typography variant="body2">
+                        เลยกำหนด {formatNumber(analytics.kpi.overdueCount)} เฟส
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                        งาน (ไม่นับที่เสร็จแล้ว)
+                        เฟส (ไม่นับที่เสร็จแล้ว)
                     </Typography>
                 </Box>
             </Menu>
@@ -1425,17 +1392,17 @@ export default function ProjectSubTask({
                                 icon={<EventAvailableRoundedIcon sx={{ fontSize: 24 }} />}
                             />
                             <KpiTile
-                                label="เสี่ยง/ล่าช้า"
-                                value={formatNumber(analytics.kpi.riskCount)}
-                                sub="Early warning"
-                                color="#8B5CF6"
+                                label="ยังไม่เสร็จ"
+                                value={formatNumber(analytics.kpi.notDoneCount)}
+                                sub="progress < 100%"
+                                color="#fdca01"
                                 icon={<ReportProblemRoundedIcon sx={{ fontSize: 24 }} />}
                             />
                         </Box>
 
                         {/* แถวกราฟ 1: Donut status + Area cumulative hours */}
                         <Box sx={{ mt: 2, display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", md: "0.9fr 1.1fr" } }}>
-                            <CardShell title="สัดส่วนสถานะงานย่อย" subtitle="นับจำนวนงานตามสถานะ (Donut)">
+                            <CardShell title="สัดส่วนสถานะงานย่อย" >
                                 <ReactApexChart
                                     options={{
                                         chart: { type: "donut", toolbar: { show: false } },
@@ -1466,7 +1433,7 @@ export default function ProjectSubTask({
                                 />
                             </CardShell>
 
-                            <CardShell title="ชั่วโมงวางแผนสะสมตามวันเริ่ม" subtitle="ช่วยเห็นช่วงที่งานเริ่มหนาแน่น (Area)">
+                            <CardShell title="ชั่วโมงวางแผนสะสมตามวันเริ่ม" >
                                 {analytics.charts.areaSeries?.[0]?.data?.length ? (
                                     <ReactApexChart
                                         options={{
@@ -1497,7 +1464,7 @@ export default function ProjectSubTask({
                                     />
                                 ) : (
                                     <Typography variant="caption" color="text.secondary">
-                                        ยังไม่มีข้อมูล start_date เพียงพอ
+
                                     </Typography>
                                 )}
                             </CardShell>
@@ -1505,7 +1472,7 @@ export default function ProjectSubTask({
 
                         {/* แถวกราฟ 2: Deadline density */}
                         <Box sx={{ mt: 1.25 }}>
-                            <CardShell title="วันที่ครบกำหนดที่หนาแน่น" subtitle="Top 10 วันที่มีงานย่อยครบกำหนดเยอะที่สุด (Column)">
+                            <CardShell title="Top 10 วันที่ครบกำหนดที่หนาแน่น">
                                 {analytics.charts.deadlineCategories.length ? (
                                     <ReactApexChart
                                         options={{
@@ -1525,7 +1492,7 @@ export default function ProjectSubTask({
                                     />
                                 ) : (
                                     <Typography variant="caption" color="text.secondary">
-                                        ยังไม่มีข้อมูล end_date เพียงพอ
+
                                     </Typography>
                                 )}
                             </CardShell>
@@ -1549,9 +1516,7 @@ export default function ProjectSubTask({
                     <Box sx={{ px: 2, py: 1.75, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
                         <Box sx={{ minWidth: 0 }}>
                             <Typography sx={{ fontWeight: 900, fontSize: 15 }}>รายการงานย่อย</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                                รายการงานย่อยภายใต้งานหลักนี้
-                            </Typography>
+
                         </Box>
 
                         <Tooltip title="เพิ่มงานย่อย">
@@ -1664,7 +1629,7 @@ export default function ProjectSubTask({
                             fullWidth
                             sx={{ display: "none" }}
                         >
-                            {["ยังไม่เริ่ม", "ทำอยู่", "เสี่ยง", "ล่าช้า", "เสร็จแล้ว"].map((s) => (
+                            {["ยังไม่เริ่ม", "กำลังทำ", "เสร็จแล้ว"].map((s) => (
                                 <MenuItem key={s} value={s}>
                                     {s}
                                 </MenuItem>
@@ -1708,8 +1673,8 @@ export default function ProjectSubTask({
                                 <DatePicker
                                     label="วันที่เริ่ม"
                                     value={subTaskDialog.form.start_date ? dayjs(subTaskDialog.form.start_date) : null}
-                                    minDate={phaseStartDay || undefined}
-                                    maxDate={phaseEndDay || undefined}
+                                    minDate={taskStartDay || undefined}
+                                    maxDate={taskEndDay || undefined}
                                     onChange={(v) =>
                                         setSubTaskDialog((prev) => {
                                             const start_date = v ? (v.format ? v.format("YYYY-MM-DD") : String(v)) : "";
@@ -1737,8 +1702,8 @@ export default function ProjectSubTask({
                                 <DatePicker
                                     label="วันที่สิ้นสุด"
                                     value={subTaskDialog.form.end_date ? dayjs(subTaskDialog.form.end_date) : null}
-                                    minDate={toDayjsDate(subTaskDialog.form.start_date) || phaseStartDay || undefined}
-                                    maxDate={phaseEndDay || undefined}
+                                    minDate={toDayjsDate(subTaskDialog.form.start_date) || taskStartDay || undefined}
+                                    maxDate={taskEndDay || undefined}
                                     onChange={(v) =>
                                         setSubTaskDialog((prev) => {
                                             const end_date = v ? (v.format ? v.format("YYYY-MM-DD") : String(v)) : "";
@@ -1765,7 +1730,7 @@ export default function ProjectSubTask({
                         </LocalizationProvider>
 
                         <TextField
-                        sx={{display:'none'}}
+                            sx={{ display: 'none' }}
                             size="small"
                             label="ชั่วโมงวางแผน"
                             type="number"
@@ -1836,7 +1801,7 @@ export default function ProjectSubTask({
                         fullWidth
                         value={employeeSearch}
                         onChange={(e) => setEmployeeSearch(e.target.value)}
-                        sx={{ mb: 1 }}
+                        sx={{ mt: 3, mb: 1 }}
                         InputProps={{
                             startAdornment: (
                                 <InputAdornment position="start">
@@ -1852,7 +1817,6 @@ export default function ProjectSubTask({
                             const checked = String(ownerSelection || "") === String(idKey || "");
                             const code = String(emp?.employee_code || "").trim();
                             const name = String(SubTask.formatEmployee(emp) || "").trim();
-                            const primary = code || name || "—";
                             const secondary = name && name !== code ? name : "";
                             return (
                                 <ListItemButton
@@ -1862,7 +1826,7 @@ export default function ProjectSubTask({
                                     <ListItemIcon>
                                         <Checkbox size="small" color="error" checked={checked} tabIndex={-1} disableRipple />
                                     </ListItemIcon>
-                                    <ListItemText primary={primary} secondary={secondary} />
+                                    <ListItemText primary={secondary} />
                                 </ListItemButton>
                             );
                         })}

@@ -55,6 +55,7 @@ import ReactApexChart from "react-apexcharts";
 
 // ✅ Logic layer
 import * as MainTask from "../../functions/MainTask";
+import Projects from "../../functions/Projects";
 
 const BRAND = "#ff4059";
 
@@ -67,11 +68,24 @@ try {
 
 const STATUS_COLORS = {
   "ยังไม่เริ่ม": "#64748B",
-  "ทำอยู่": "#fdca01",
-  "เสี่ยง": "#ff4059",
-  "ล่าช้า": "#8B5CF6",
+  "กำลังทำ": "#fdca01",
   "เสร็จแล้ว": "#08d84c",
 };
+
+function normalizeWbsStatus(s) {
+  if (Projects?.normalizeWbsStatus) return Projects.normalizeWbsStatus(s);
+  const raw = String(s || '').trim();
+  if (raw === 'เสร็จแล้ว' || raw === 'DONE' || raw.toLowerCase() === 'done') return 'เสร็จแล้ว';
+  if (raw === 'กำลังทำ' || raw === 'ทำอยู่' || raw === 'IN_PROGRESS' || raw.toLowerCase() === 'in_progress') return 'กำลังทำ';
+  return 'ยังไม่เริ่ม';
+}
+
+function fallbackProgressFromStatus(status) {
+  const st = normalizeWbsStatus(status);
+  if (st === 'เสร็จแล้ว') return 100;
+  if (st === 'กำลังทำ') return 50;
+  return 0;
+}
 
 // รายชื่อผู้รับผิดชอบที่เลือกได้ ต้องดึงจากสมาชิกของโปรเจค (tpr_project_members)
 // และให้ UI เรียกผ่าน logic layer: MainTask.listProjectMembers
@@ -191,7 +205,7 @@ function validatePlannedHoursText(v) {
   return "";
 }
 
-function KpiTile({ label, value, sub, color, icon }) {
+function KpiTile({ label, value, sub, color }) {
   return (
     <Box
       sx={{
@@ -205,24 +219,10 @@ function KpiTile({ label, value, sub, color, icon }) {
       }}
     >
       <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 1 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 900 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 900 }}>
           {label}
         </Typography>
 
-        {icon ? (
-          <Box
-            sx={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: color || "text.primary",
-              opacity: 0.95,
-              mt: 0.1,
-            }}
-          >
-            {icon}
-          </Box>
-        ) : null}
       </Box>
       <Typography
         sx={{
@@ -246,23 +246,13 @@ function KpiTile({ label, value, sub, color, icon }) {
 }
 
 function StatusPill({ status }) {
-  const sRaw = String(status || "");
-  const s = sRaw.toLowerCase();
-
+  const st = normalizeWbsStatus(status);
   const map = {
-    เสร็จแล้ว: { label: "เสร็จแล้ว", dot: "#08d84c", border: "#08d84c" },
-    ล่าช้า: { label: "ล่าช้า", dot: "#8B5CF6", border: "#8B5CF6" },
-    เสี่ยง: { label: "เสี่ยง", dot: "#ff4059", border: "#ff4059" },
-    ยังไม่เริ่ม: { label: "ยังไม่เริ่ม", dot: "#64748B", border: "#64748B" },
-    ทำอยู่: { label: "ทำอยู่", dot: "#fdca01", border: "#fdca01" },
-    pending: { label: "ยังไม่เริ่ม", dot: "#64748B", border: "#64748B" },
-    doing: { label: "ทำอยู่", dot: "#fdca01", border: "#fdca01" },
-    done: { label: "เสร็จแล้ว", dot: "#08d84c", border: "#08d84c" },
-    risk: { label: "เสี่ยง", dot: "#ff4059", border: "#ff4059" },
-    delayed: { label: "ล่าช้า", dot: "#8B5CF6", border: "#8B5CF6" },
+    'ยังไม่เริ่ม': { label: 'ยังไม่เริ่ม', dot: '#64748B', border: '#64748B' },
+    'กำลังทำ': { label: 'กำลังทำ', dot: '#fdca01', border: '#fdca01' },
+    'เสร็จแล้ว': { label: 'เสร็จแล้ว', dot: '#08d84c', border: '#08d84c' },
   };
-
-  const cfg = map[sRaw] || map[s] || map.pending;
+  const cfg = map[st] || map['ยังไม่เริ่ม'];
 
   return (
     <Box
@@ -304,14 +294,7 @@ function TasksTable({ loading, rows, onRowClick, onEditRow, onDeleteRow }) {
     setMenuRow(null);
   }, []);
 
-  // heuristic progress from status (metadata.status)
-  const statusToProgress = (status) => {
-    if (status === "เสร็จแล้ว") return 100;
-    if (status === "ทำอยู่") return 55;
-    if (status === "เสี่ยง") return 45;
-    if (status === "ล่าช้า") return 35;
-    return 0;
-  };
+  const clampPct = Projects?.clampPct ? Projects.clampPct : (v) => clamp(v, 0, 100);
 
   return (
     <Box sx={{ width: "100%" }}>
@@ -340,97 +323,99 @@ function TasksTable({ loading, rows, onRowClick, onEditRow, onDeleteRow }) {
           <TableBody>
             {loading
               ? Array.from({ length: 4 }).map((_, i) => (
-                  <TableRow key={`sk-${i}`}>
+                <TableRow key={`sk-${i}`}>
+                  <TableCell>
+                    <Skeleton variant="text" width={46} />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton variant="text" width={240} />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton variant="rounded" width={92} height={24} />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton variant="rounded" width={140} height={10} />
+                    <Skeleton variant="text" width={40} />
+                  </TableCell>
+                  <TableCell sx={{ display: { xs: "none", md: "table-cell" }, textAlign: "center" }}>
+                    <Skeleton variant="text" width={90} />
+                  </TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>
+                    <Skeleton variant="text" width={40} />
+                  </TableCell>
+                </TableRow>
+              ))
+              : list.map((r, idx) => {
+                const key = r.id || r.code || idx;
+                const progressRaw = r?.progress;
+                const progressNum = progressRaw === null || progressRaw === undefined || progressRaw === "" ? NaN : Number(progressRaw);
+                const pct = clampPct(Number.isFinite(progressNum) ? progressNum : fallbackProgressFromStatus(r.status));
+                const seq = r?.seq || `T-${idx + 1}`;
+
+                return (
+                  <TableRow
+                    key={key}
+                    hover
+                    sx={{ cursor: "pointer" }}
+                    onClick={() => {
+                      try {
+                        onRowClick?.(r);
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                  >
                     <TableCell>
-                      <Skeleton variant="text" width={46} />
+                      <Typography sx={{ fontSize: 14 }}>{seq}</Typography>
                     </TableCell>
+
                     <TableCell>
-                      <Skeleton variant="text" width={240} />
+                      <Typography sx={{ fontSize: 14 }}>{r.name || "-"}</Typography>
                     </TableCell>
+
                     <TableCell>
-                      <Skeleton variant="rounded" width={92} height={24} />
+                      <StatusPill status={r.status || "ยังไม่เริ่ม"} />
                     </TableCell>
+
                     <TableCell>
-                      <Skeleton variant="rounded" width={140} height={10} />
-                      <Skeleton variant="text" width={40} />
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Box sx={{ flex: 1, minWidth: 80 }}>
+                          <LinearProgress
+                            variant="determinate"
+                            value={pct}
+                            sx={{
+                              height: 8,
+                              borderRadius: 99,
+                              bgcolor: "#e2e8f0",
+                              "& .MuiLinearProgress-bar": { bgcolor: "#08d84c" },
+                            }}
+                          />
+                        </Box>
+                        <Typography sx={{ fontSize: 12.5, fontWeight: 500, minWidth: 40, textAlign: "right" }}>
+                          {`${Math.round(pct)}%`}
+                        </Typography>
+                      </Box>
                     </TableCell>
+
                     <TableCell sx={{ display: { xs: "none", md: "table-cell" }, textAlign: "center" }}>
-                      <Skeleton variant="text" width={90} />
+                      {r.dateRange || "-"}
                     </TableCell>
+
                     <TableCell sx={{ textAlign: "center" }}>
-                      <Skeleton variant="text" width={40} />
+                      <IconButton onClick={(e) => handleOpenMenu(e, r)} aria-label="เมนูเพิ่มเติม">
+                        <MoreHorizIcon />
+                      </IconButton>
                     </TableCell>
                   </TableRow>
-                ))
-              : list.map((r, idx) => {
-                  const key = r.id || r.code || idx;
-                  const pct = clamp(statusToProgress(r.status), 0, 100);
-                  const seq = r?.seq || `T-${idx + 1}`;
-
-                  return (
-                    <TableRow
-                      key={key}
-                      hover
-                      sx={{ cursor: "pointer" }}
-                      onClick={() => {
-                        try {
-                          onRowClick?.(r);
-                        } catch {
-                          // ignore
-                        }
-                      }}
-                    >
-                      <TableCell>
-                        <Typography sx={{ fontSize: 14 }}>{seq}</Typography>
-                      </TableCell>
-
-                      <TableCell>
-                        <Typography sx={{ fontSize: 14 }}>{r.name || "-"}</Typography>
-                      </TableCell>
-
-                      <TableCell>
-                        <StatusPill status={r.status || "ยังไม่เริ่ม"} />
-                      </TableCell>
-
-                      <TableCell>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                          <Box sx={{ flex: 1, minWidth: 80 }}>
-                            <LinearProgress
-                              variant="determinate"
-                              value={pct}
-                              sx={{
-                                height: 8,
-                                borderRadius: 99,
-                                bgcolor: "#e2e8f0",
-                                "& .MuiLinearProgress-bar": { bgcolor: "#08d84c" },
-                              }}
-                            />
-                          </Box>
-                          <Typography sx={{ fontSize: 12.5, fontWeight: 500, minWidth: 40, textAlign: "right" }}>
-                            {`${Math.round(pct)}%`}
-                          </Typography>
-                        </Box>
-                      </TableCell>
-
-                      <TableCell sx={{ display: { xs: "none", md: "table-cell" }, textAlign: "center" }}>
-                        {r.dateRange || "-"}
-                      </TableCell>
-
-                      <TableCell sx={{ textAlign: "center" }}>
-                        <IconButton onClick={(e) => handleOpenMenu(e, r)} aria-label="เมนูเพิ่มเติม">
-                          <MoreHorizIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                );
+              })}
 
             {!loading && list.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6}>
                   <Box sx={{ py: 1 }}>
                     <Typography variant="caption" color="text.secondary">
-                      ยังไม่มีงานหลักในเฟสนี้
+
                     </Typography>
                   </Box>
                 </TableCell>
@@ -681,7 +666,7 @@ export default function ProjectMainTask({
 
   const openEditDialog = React.useCallback((row) => {
     const st = String(row?.metadata?.status || row?.status || "ยังไม่เริ่ม").trim() || "ยังไม่เริ่ม";
-    const preOwners = Array.isArray(row?.owners) ? row.owners.map((o) => o?.user_id).filter(Boolean) : [];
+    const preOwners = Array.isArray(row?.owners) ? row.owners.map((o) => o?.employee_id).filter(Boolean) : [];
     setTaskDialog({
       open: true,
       mode: "edit",
@@ -801,8 +786,8 @@ export default function ProjectMainTask({
     setOwnerDialogOpen(false);
   }, []);
 
-  const toggleOwnerSelection = React.useCallback((userId) => {
-    const id = String(userId || "").trim();
+  const toggleOwnerSelection = React.useCallback((employeeId) => {
+    const id = String(employeeId || "").trim();
     if (!id) return;
     setOwnerSelections((prev) => {
       const list = Array.isArray(prev) ? prev : [];
@@ -932,7 +917,7 @@ export default function ProjectMainTask({
 
   const analytics = React.useMemo(() => {
     const rows = Array.isArray(tasksState.rows) ? tasksState.rows : [];
-    const statuses = ["ยังไม่เริ่ม", "ทำอยู่", "เสี่ยง", "ล่าช้า", "เสร็จแล้ว"];
+    const statuses = ["ยังไม่เริ่ม", "กำลังทำ", "เสร็จแล้ว"];
 
     const base = {
       total: rows.length,
@@ -943,8 +928,7 @@ export default function ProjectMainTask({
     };
 
     for (const r of rows) {
-      const s = String(r?.status || "ยังไม่เริ่ม").trim() || "ยังไม่เริ่ม";
-      const st = statuses.includes(s) ? s : "ยังไม่เริ่ม";
+      const st = normalizeWbsStatus(r?.status);
 
       base.byStatus[st] += 1;
       if (st === "เสร็จแล้ว") base.done += 1;
@@ -954,14 +938,37 @@ export default function ProjectMainTask({
       base.hoursByStatus[st] += Number.isFinite(h) ? h : 0;
     }
 
-    const progressPct = base.total > 0 ? Math.round((base.done / base.total) * 100) : 0;
-    const riskCount = (base.byStatus["เสี่ยง"] || 0) + (base.byStatus["ล่าช้า"] || 0);
+    const clampPct = Projects?.clampPct ? Projects.clampPct : (v) => clamp(v, 0, 100);
+    const progressList = rows
+      .map((r) => {
+        const v = r?.progress;
+        const n = v === null || v === undefined || v === '' ? NaN : Number(v);
+        return Number.isFinite(n) ? clampPct(n) : null;
+      })
+      .filter((x) => x !== null);
+
+    const progressPct =
+      progressList.length > 0
+        ? clampPct(Math.round(progressList.reduce((sum, x) => sum + Number(x || 0), 0) / progressList.length))
+        : (base.total > 0 ? Math.round((base.done / base.total) * 100) : 0);
+
+    const notDoneCount = rows.reduce((acc, r) => {
+      const v = r?.progress;
+      const n = v === null || v === undefined || v === '' ? NaN : Number(v);
+      if (Number.isFinite(n)) return acc + (clampPct(n) < 100 ? 1 : 0);
+      return acc + (normalizeWbsStatus(r?.status) !== 'เสร็จแล้ว' ? 1 : 0);
+    }, 0);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayMs = today.getTime();
 
-    const active = rows.filter((r) => String(r?.status || "") !== "เสร็จแล้ว");
+    const active = rows.filter((r) => {
+      const v = r?.progress;
+      const n = v === null || v === undefined || v === '' ? NaN : Number(v);
+      if (Number.isFinite(n)) return clampPct(n) < 100;
+      return normalizeWbsStatus(r?.status) !== 'เสร็จแล้ว';
+    });
     const dueSoon = [];
     let overdueCount = 0;
 
@@ -982,7 +989,7 @@ export default function ProjectMainTask({
         label: String(r?.seq || r?.code || "T-?"),
         name: r?.name || "",
         planned: Number(r?.planned_hours || 0),
-        status: String(r?.status || "ยังไม่เริ่ม").trim() || "ยังไม่เริ่ม",
+        status: normalizeWbsStatus(r?.status),
       }))
       .filter((x) => Number.isFinite(x.planned))
       .sort((a, b) => (b.planned || 0) - (a.planned || 0))
@@ -1040,8 +1047,7 @@ export default function ProjectMainTask({
 
     const scatterByStatus = statuses.reduce((acc, s) => ((acc[s] = []), acc), {});
     for (const r of rows) {
-      const st = String(r?.status || "ยังไม่เริ่ม").trim() || "ยังไม่เริ่ม";
-      const s = statuses.includes(st) ? st : "ยังไม่เริ่ม";
+      const s = normalizeWbsStatus(r?.status);
       const stMs = parseISODateOnlyToMs(r?.start_date);
       const enMs = parseISODateOnlyToMs(r?.end_date);
       if (!Number.isFinite(stMs) || !Number.isFinite(enMs)) continue;
@@ -1073,7 +1079,7 @@ export default function ProjectMainTask({
         total: base.total,
         progressPct,
         hoursTotal: base.hoursTotal,
-        riskCount,
+        notDoneCount,
         byStatus: base.byStatus,
         dueSoonTop: dueSoon.slice(0, 3),
         dueSoonCount: dueSoon.length,
@@ -1133,7 +1139,7 @@ export default function ProjectMainTask({
   }
 
   const alertCount =
-    (analytics?.kpi?.riskCount || 0) + (analytics?.kpi?.dueSoonCount || 0) + (analytics?.kpi?.overdueCount || 0);
+    (analytics?.kpi?.dueSoonCount || 0) + (analytics?.kpi?.overdueCount || 0);
 
   return (
     <Box sx={{ maxWidth: 1180, mx: "auto", width: "100%" }}>
@@ -1152,10 +1158,9 @@ export default function ProjectMainTask({
             onClick={() => {
               try {
                 (onNavProjects || onBack)?.();
-              } catch 
-                  {
-                    // ignore
-                  }
+              } catch {
+                // ignore
+              }
             }}
             variant="text"
             sx={{
@@ -1174,10 +1179,9 @@ export default function ProjectMainTask({
             onClick={() => {
               try {
                 onNavProject?.();
-              } catch 
-                  {
-                    // ignore
-                  }
+              } catch {
+                // ignore
+              }
             }}
             variant="text"
             sx={{
@@ -1204,8 +1208,7 @@ export default function ProjectMainTask({
                 onClick={() => {
                   try {
                     onNavWorkstreams?.();
-                  } catch 
-                  {
+                  } catch {
                     // ignore
                   }
                 }}
@@ -1234,7 +1237,7 @@ export default function ProjectMainTask({
             <>
               <Box sx={{ opacity: 0.55, color: "text.secondary" }}>›</Box>
               <Button
-                variant="text"
+                variant="body2"
                 sx={{
                   p: 0,
                   minWidth: 0,
@@ -1293,53 +1296,30 @@ export default function ProjectMainTask({
         PaperProps={{ sx: { width: 360, borderRadius: 1 } }}
       >
         <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography sx={{ fontWeight: 950, fontSize: 14 }}>แจ้งเตือนงานหลัก</Typography>
+          <Typography sx={{ fontWeight: 800 }}>การแจ้งเตือน</Typography>
+        </Box>
+        <Divider />
+
+        <Box sx={{ px: 2, py: 1.25 }}>
+          <Typography variant="body2">สรุปสถานะ</Typography>
           <Typography variant="caption" color="text.secondary">
-            สรุปความเสี่ยง/กำหนดเวลา
+            กำลังทำ {formatNumber(analytics.kpi.byStatus['กำลังทำ'] || 0)} เฟส, ยังไม่เริ่ม {formatNumber(analytics.kpi.byStatus['ยังไม่เริ่ม'] || 0)} เฟส
           </Typography>
-        </Box>
-        <Divider />
-
-        <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-            สรุปความเสี่ยง
-          </Typography>
-          <Box sx={{ mt: 0.75, display: "flex", alignItems: "center", gap: 1.2, flexWrap: "wrap" }}>
-            <StatusPill status="เสี่ยง" />
-            <Typography sx={{ fontSize: 13, fontWeight: 900 }}>{formatNumber(analytics.kpi.byStatus["เสี่ยง"] || 0)} งาน</Typography>
-            <StatusPill status="ล่าช้า" />
-            <Typography sx={{ fontSize: 13, fontWeight: 900 }}>{formatNumber(analytics.kpi.byStatus["ล่าช้า"] || 0)} งาน</Typography>
-          </Box>
         </Box>
 
         <Divider />
 
         <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
+          <Typography variant="body2">
             ใกล้ถึงกำหนด (≤ 7 วัน)
           </Typography>
-          <Typography sx={{ mt: 0.25, fontSize: 13.5, fontWeight: 950 }}>{formatNumber(analytics.kpi.dueSoonCount)} งาน</Typography>
+          {/* <Typography sx={{ mt: 0.25, fontSize: 13.5, fontWeight: 950 }}>{formatNumber(analytics.kpi.dueSoonCount)} งาน</Typography> */}
           <Box sx={{ mt: 0.75, display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-            {(analytics.kpi.dueSoonTop.length ? analytics.kpi.dueSoonTop : [{ name: "—" }]).map((p, i) => (
-              <Box
-                key={`${p.id || p.name}-${i}`}
-                sx={{
-                  px: 1,
-                  py: 0.35,
-                  borderRadius: 999,
-                  bgcolor: "#f8fafc",
-                  border: "1px solid #e2e8f0",
-                  fontSize: 12.5,
-                  fontWeight: 800,
-                  maxWidth: 300,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-                title={p.name}
-              >
+            {(analytics.kpi.dueSoonTop.length ? analytics.kpi.dueSoonTop : [{ name: "—" }]).map((p) => (
+
+              <Typography variant="caption" color="text.secondary">
                 {p.name}
-              </Box>
+              </Typography>
             ))}
           </Box>
         </Box>
@@ -1347,14 +1327,11 @@ export default function ProjectMainTask({
         <Divider />
 
         <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-            เลยกำหนด
-          </Typography>
-          <Typography sx={{ mt: 0.25, fontSize: 20, fontWeight: 950, color: analytics.kpi.overdueCount > 0 ? BRAND : "text.primary" }}>
-            {formatNumber(analytics.kpi.overdueCount)}
+          <Typography variant="body2">
+            เลยกำหนด {formatNumber(analytics.kpi.overdueCount)} เฟส
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            งาน (ไม่นับที่เสร็จแล้ว)
+            เฟส (ไม่นับที่เสร็จแล้ว)
           </Typography>
         </Box>
       </Menu>
@@ -1415,16 +1392,16 @@ export default function ProjectMainTask({
                 icon={<EventAvailableRoundedIcon sx={{ fontSize: 24 }} />}
               />
               <KpiTile
-                label="เสี่ยง/ล่าช้า"
-                value={formatNumber(analytics.kpi.riskCount)}
-                sub="Early warning"
-                color="#8B5CF6"
+                label="ยังไม่เสร็จ"
+                value={formatNumber(analytics.kpi.notDoneCount)}
+                sub="progress < 100%"
+                color="#fdca01"
                 icon={<ReportProblemRoundedIcon sx={{ fontSize: 24 }} />}
               />
             </Box>
 
             <Box sx={{ mt: 2, display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", md: "0.9fr 1.1fr" } }}>
-              <CardShell title="เข็มทิศความคืบหน้า" subtitle="ภาพรวมงานหลักทั้งหมด">
+              <CardShell title="ความคืบหน้า" >
                 <ReactApexChart
                   options={{
                     chart: { type: "radialBar", toolbar: { show: false } },
@@ -1453,7 +1430,7 @@ export default function ProjectMainTask({
                   height={250}
                 />
                 <Box sx={{ mt: 0.25, display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "center" }}>
-                  {["ทำอยู่", "ยังไม่เริ่ม", "เสี่ยง", "ล่าช้า"].map((s) => (
+                  {["กำลังทำ", "ยังไม่เริ่ม", "เสร็จแล้ว"].map((s) => (
                     <Box key={s} sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
                       <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: STATUS_COLORS[s] }} />
                       <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
@@ -1464,10 +1441,10 @@ export default function ProjectMainTask({
                 </Box>
               </CardShell>
 
-              <CardShell title="Top งานที่ใช้ชั่วโมงมากสุด" subtitle="เรียงตาม planned hours (Top 8)">
+              <CardShell title="Top 8 งานที่ใช้ชั่วโมงมากสุด" >
                 {analytics.charts.topHoursCategories.length === 0 ? (
                   <Typography variant="caption" color="text.secondary">
-                    ยังไม่มีข้อมูลชั่วโมงวางแผนเพียงพอ
+
                   </Typography>
                 ) : (
                   <ReactApexChart
@@ -1494,7 +1471,7 @@ export default function ProjectMainTask({
                       yaxis: { labels: { formatter: (v) => String(v), align: "left" } },
                       tooltip: { y: { formatter: (v) => `${formatNumber(v)} ชม.` } },
                       colors: (analytics.charts.topHoursMeta || []).map(
-                        (t) => STATUS_COLORS[String(t?.status || "ยังไม่เริ่ม").trim()] || STATUS_COLORS["ยังไม่เริ่ม"]
+                        (t) => STATUS_COLORS[normalizeWbsStatus(t?.status)] || STATUS_COLORS["ยังไม่เริ่ม"]
                       ),
                       legend: { show: false },
                     }}
@@ -1507,7 +1484,7 @@ export default function ProjectMainTask({
             </Box>
 
             <Box sx={{ mt: 1.25, display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
-              <CardShell title="Heatmap กำหนดส่ง (4 สัปดาห์)" subtitle="นับจำนวนงานที่ end_date ตรงกับวันนั้น">
+              <CardShell title="Heatmap กำหนดส่ง (4 สัปดาห์)">
                 <ReactApexChart
                   options={{
                     chart: { type: "heatmap", toolbar: { show: false } },
@@ -1547,15 +1524,13 @@ export default function ProjectMainTask({
                   type="heatmap"
                   height={260}
                 />
-                <Typography variant="caption" color="text.secondary">
-                  * ใช้ end_date ของงานหลัก เพื่อช่วยดู “วันไหนแน่น”
-                </Typography>
+
               </CardShell>
 
-              <CardShell title="ระยะเวลางาน (วัน) ตามวันเริ่ม" subtitle="ดูงานที่ยาวผิดปกติ + แยกสีตามสถานะ">
+              <CardShell title="ระยะเวลางาน (วัน) ตามวันเริ่ม" >
                 {analytics.charts.scatterCount === 0 ? (
                   <Typography variant="caption" color="text.secondary">
-                    ยังไม่มีข้อมูล start/end date เพียงพอสำหรับสร้างกราฟนี้
+
                   </Typography>
                 ) : (
                   <ReactApexChart
@@ -1627,9 +1602,7 @@ export default function ProjectMainTask({
           <Box sx={{ px: 2, py: 1.75, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
             <Box sx={{ minWidth: 0 }}>
               <Typography sx={{ fontWeight: 900, fontSize: 15 }}>รายการงานหลัก</Typography>
-              <Typography variant="caption" color="text.secondary">
-                กดแถวเพื่อเข้าดูรายละเอียดงานหลัก
-              </Typography>
+
             </Box>
 
             <Tooltip title="เพิ่มงานหลัก">
@@ -1733,7 +1706,7 @@ export default function ProjectMainTask({
 
             {/* ✅ ผู้รับผิดชอบ: TextField ปกติ + ปุ่มค้นหาชิดขวา */}
             <TextField
-             
+
               size="small"
               label="ผู้รับผิดชอบ"
               value={ownersSummary || ""}
@@ -1762,7 +1735,7 @@ export default function ProjectMainTask({
               onChange={(e) => setTaskDialog((prev) => ({ ...prev, form: { ...prev.form, status: e.target.value } }))}
               fullWidth
             >
-              {["ยังไม่เริ่ม", "ทำอยู่", "เสี่ยง", "ล่าช้า", "เสร็จแล้ว"].map((s) => (
+              {["ยังไม่เริ่ม", "กำลังทำ", "เสร็จแล้ว"].map((s) => (
                 <MenuItem key={s} value={s}>
                   {s}
                 </MenuItem>
@@ -1845,7 +1818,7 @@ export default function ProjectMainTask({
             </LocalizationProvider>
 
             <TextField
-            sx={{display:'none'}}
+              sx={{ display: 'none' }}
               size="small"
               label="ชั่วโมงวางแผน"
               type="number"
